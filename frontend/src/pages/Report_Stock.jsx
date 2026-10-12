@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import axios from 'axios';
-
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+import API from '../api';
 
 export default function Report_Stock() {
   const [stockData, setStockData] = useState([]);
@@ -24,18 +22,18 @@ export default function Report_Stock() {
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: token ? `Bearer ${token}` : '' } };
+    return token ? { headers: { Authorization: `Bearer ${token}` } } : {};
   };
 
   useEffect(() => {
     const fetchFilterOptions = async () => {
       try {
         const [catRes, manRes] = await Promise.all([
-          axios.get(`${API_BASE_URL}/categories`, getAuthHeaders()).catch(() => ({ data: { data: [] } })),
-          axios.get(`${API_BASE_URL}/manufacturers`, getAuthHeaders()).catch(() => ({ data: { data: [] } })),
+          API.get('/categories', getAuthHeaders()).catch(() => ({ data: { data: [] } })),
+          API.get('/manufacturers', getAuthHeaders()).catch(() => ({ data: { data: [] } })),
         ]);
-        setCategories(catRes.data.data || catRes.data || []);
-        setManufacturers(manRes.data.data || manRes.data || []);
+        setCategories(catRes.data?.data || catRes.data || []);
+        setManufacturers(manRes.data?.data || manRes.data || []);
       } catch (err) {
         console.error('Error loading filter options', err);
       }
@@ -48,16 +46,20 @@ export default function Report_Stock() {
       setLoading(true);
       setError('');
 
-      let url = `${API_BASE_URL}/reports/stock?`;
-      if (searchQuery) url += `search=${encodeURIComponent(searchQuery)}&`;
-      if (stockFilter) url += `stock_filter=${encodeURIComponent(stockFilter)}&`;
-      if (selectedCategory) url += `category_id=${encodeURIComponent(selectedCategory)}&`;
-      if (selectedManufacturer) url += `manufacturer_id=${encodeURIComponent(selectedManufacturer)}`;
+      const params = new URLSearchParams();
+      if (searchQuery) params.append('search', searchQuery);
+      if (stockFilter) params.append('stock_filter', stockFilter);
+      if (selectedCategory) params.append('category_id', selectedCategory);
+      if (selectedManufacturer) params.append('manufacturer_id', selectedManufacturer);
 
-      const response = await axios.get(url, getAuthHeaders());
+      const queryString = params.toString();
+      const url = `/reports/stock${queryString ? `?${queryString}` : ''}`;
 
-      if (response.data && response.data.success) {
-        setStockData(response.data.data || []);
+      const response = await API.get(url, getAuthHeaders());
+
+      if (response.data && (response.data.success !== false)) {
+        const dataList = response.data.data || response.data || [];
+        setStockData(Array.isArray(dataList) ? dataList : []);
         setSummary({
           total_products: response.data.total_products || 0,
           total_stock_qty: response.data.total_stock_qty || 0,
@@ -66,7 +68,7 @@ export default function Report_Stock() {
       }
     } catch (err) {
       console.error('Error fetching stock report:', err);
-      setError('Failed to load stock report from server.');
+      setError(err.response?.data?.message || 'Failed to load stock report from server.');
     } finally {
       setLoading(false);
     }
@@ -113,7 +115,7 @@ export default function Report_Stock() {
       const totalVal = (stockQty * purchasePrice).toFixed(2);
 
       return (
-        <tr key={item.product_id || item.id} className="hover:bg-gray-50 transition">
+        <tr key={item.product_id || item.id || index} className="hover:bg-gray-50 transition">
           <td className="py-2 px-3 text-center font-semibold text-gray-500">{index + 1}</td>
           <td className="py-2 px-3 font-medium text-gray-800">{item.product_name}</td>
           <td className="py-2 px-3 font-mono text-gray-600">{item.barcode || '---'}</td>
@@ -254,8 +256,8 @@ export default function Report_Stock() {
             className="px-3 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-[#417690] bg-white cursor-pointer"
           >
             <option value="">All Categories</option>
-            {categories.map((cat) => (
-              <option key={cat.id || cat.category_id} value={cat.id || cat.category_id}>
+            {categories.map((cat, idx) => (
+              <option key={cat.id || cat.category_id || idx} value={cat.id || cat.category_id}>
                 {cat.category_name}
               </option>
             ))}
@@ -268,8 +270,8 @@ export default function Report_Stock() {
             className="px-3 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-[#417690] bg-white cursor-pointer"
           >
             <option value="">All Manufacturers</option>
-            {manufacturers.map((man) => (
-              <option key={man.id || man.manufacturer_id} value={man.id || man.manufacturer_id}>
+            {manufacturers.map((man, idx) => (
+              <option key={man.id || man.manufacturer_id || idx} value={man.id || man.manufacturer_id}>
                 {man.manufacturer_name}
               </option>
             ))}
@@ -319,7 +321,7 @@ export default function Report_Stock() {
                 const totalVal = (stockQty * purchasePrice).toFixed(2);
 
                 return (
-                  <div key={item.product_id || item.id} className="bg-white border border-gray-200 rounded-lg p-3 shadow-xs space-y-2 text-xs">
+                  <div key={item.product_id || item.id || index} className="bg-white border border-gray-200 rounded-lg p-3 shadow-xs space-y-2 text-xs">
                     <div className="flex justify-between items-start border-b pb-2">
                       <div>
                         <span className="text-gray-400 font-semibold text-[10px]">#{index + 1}</span>

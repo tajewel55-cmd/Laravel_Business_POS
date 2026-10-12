@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import axios from 'axios';
+import API from '../api';
 import Flatpickr from 'react-flatpickr';
 import 'flatpickr/dist/themes/material_blue.css';
-
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
 export default function PurchaseDue() {
   const [duePurchases, setDuePurchases] = useState([]);
@@ -29,12 +27,7 @@ export default function PurchaseDue() {
   const [payLoading, setPayLoading] = useState(false);
   const [payError, setPayError] = useState('');
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: token ? `Bearer ${token}` : '' } };
-  };
-
-  const fetchDuePurchases = async (url = `${API_BASE_URL}/purchases/due`, customSearch = '', isAll = false) => {
+  const fetchDuePurchases = async (endpoint = '/purchases/due', customSearch = '', isAll = false) => {
     try {
       setLoading(true);
       setError('');
@@ -47,10 +40,9 @@ export default function PurchaseDue() {
         params.all = true;
       }
 
-      const response = await axios.get(url, {
-        ...getAuthHeaders(),
-        params
-      });
+      // API ইনস্ট্যান্সের মাধ্যমে রিকোয়েস্ট (রেলেটিভ পাথ ব্যবহার করে)
+      const cleanEndpoint = endpoint.replace(/^https?:\/\/[^\/]+\/api/, '');
+      const response = await API.get(cleanEndpoint, { params });
 
       if (response.data && response.data.success) {
         const resData = response.data.data;
@@ -64,7 +56,7 @@ export default function PurchaseDue() {
       }
     } catch (err) {
       console.error('Error fetching due purchases:', err);
-      setError('বাকি ইনভয়েসগুলোর তালিকা লোড করতে ব্যর্থ হয়েছে।');
+      setError('Failed to load the list of due invoices.');
     } finally {
       setLoading(false);
     }
@@ -77,22 +69,22 @@ export default function PurchaseDue() {
   const handleSearchChange = (e) => {
     const val = e.target.value;
     setSearchQuery(val);
-    fetchDuePurchases(`${API_BASE_URL}/purchases/due`, val);
+    fetchDuePurchases('/purchases/due', val);
   };
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
-    fetchDuePurchases(`${API_BASE_URL}/purchases/due`, searchQuery);
+    fetchDuePurchases('/purchases/due', searchQuery);
   };
 
   const handleClear = () => {
     setSearchQuery('');
-    fetchDuePurchases(`${API_BASE_URL}/purchases/due`, '');
+    fetchDuePurchases('/purchases/due', '');
   };
 
   const handleAllDue = () => {
     setSearchQuery('');
-    fetchDuePurchases(`${API_BASE_URL}/purchases/due`, '', true);
+    fetchDuePurchases('/purchases/due', '', true);
   };
 
   const handlePrint = () => {
@@ -140,21 +132,20 @@ export default function PurchaseDue() {
         payment_date: formattedDate,
       };
 
-      const response = await axios.post(
-        `${API_BASE_URL}/purchases/${selectedPurchase.purchase_id}/pay-due`,
-        payload,
-        getAuthHeaders()
+      const response = await API.post(
+        `/purchases/${selectedPurchase.purchase_id}/pay-due`,
+        payload
       );
 
       if (response.data && response.data.success) {
         setSuccessMessage('Payment successfully added!');
         setIsModalOpen(false);
-        fetchDuePurchases(`${API_BASE_URL}/purchases/due`, searchQuery);
+        fetchDuePurchases('/purchases/due', searchQuery);
         setTimeout(() => setSuccessMessage(''), 3000);
       }
     } catch (err) {
       console.error('Error submitting payment:', err);
-      setPayError(err.response?.data?.message || 'পেমেন্ট জমা দিতে সমস্যা হয়েছে।');
+      setPayError(err.response?.data?.message || 'Error submitting the payment.');
     } finally {
       setPayLoading(false);
     }
@@ -181,7 +172,7 @@ export default function PurchaseDue() {
       <tbody className="divide-y divide-gray-100 text-sm">
         {loading && duePurchases.length === 0 ? (
           <tr>
-            <td colSpan="8" className="text-center py-6 text-gray-400 text-xs">ডেটা লোড হচ্ছে...</td>
+            <td colSpan="8" className="text-center py-6 text-gray-400 text-xs">Loading data...</td>
           </tr>
         ) : duePurchases.length > 0 ? (
           duePurchases.map((item, index) => (
@@ -209,7 +200,7 @@ export default function PurchaseDue() {
           ))
         ) : (
           <tr>
-            <td colSpan="8" className="text-center py-6 text-gray-400 text-xs">কোনো বাকি বা ডিউ ইনভয়েস পাওয়া যায়নি।</td>
+            <td colSpan="8" className="text-center py-6 text-gray-400 text-xs">No due invoices found.</td>
           </tr>
         )}
       </tbody>
@@ -245,7 +236,7 @@ export default function PurchaseDue() {
           <span>📦</span> <span>Purchase Due Records</span>
         </h1>
 
-        {/* নির্দেশ অনুযায়ী টাইটেল ও সার্চ বারের মাঝখানের খালি জায়গায় সফল বা ত্রুটি বার্তা */}
+        {/* টাইটেল ও সার্চ বারের মাঝখানের স্থান */}
         <div className="w-full md:flex-1 md:px-4 text-center">
           {successMessage && (
             <div className="inline-block px-3 py-1 text-xs text-emerald-900 bg-emerald-100 rounded-lg font-semibold shadow-xs">
@@ -287,7 +278,7 @@ export default function PurchaseDue() {
         </div>
 
         <div className="flex items-center space-x-1 bg-[#2c4e60] p-1 rounded-lg">
-          <button type="button" onClick={() => fetchDuePurchases(`${API_BASE_URL}/purchases/due?page=1`, searchQuery)} disabled={pagination.current_page === 1} className="bg-[#417690] hover:bg-[#345e73] text-white px-2.5 py-1 rounded text-xs font-bold transition disabled:opacity-40 cursor-pointer">
+          <button type="button" onClick={() => fetchDuePurchases('/purchases/due?page=1', searchQuery)} disabled={pagination.current_page === 1} className="bg-[#417690] hover:bg-[#345e73] text-white px-2.5 py-1 rounded text-xs font-bold transition disabled:opacity-40 cursor-pointer">
             ⏮ First
           </button>
           <button type="button" onClick={() => pagination.prev_page_url && fetchDuePurchases(pagination.prev_page_url, searchQuery)} disabled={!pagination.prev_page_url} className="bg-[#417690] hover:bg-[#345e73] text-white px-2.5 py-1 rounded text-xs font-bold transition disabled:opacity-40 cursor-pointer">
@@ -299,7 +290,7 @@ export default function PurchaseDue() {
           <button type="button" onClick={() => pagination.next_page_url && fetchDuePurchases(pagination.next_page_url, searchQuery)} disabled={!pagination.next_page_url} className="bg-[#417690] hover:bg-[#345e73] text-white px-2.5 py-1 rounded text-xs font-bold transition disabled:opacity-40 cursor-pointer">
             Next ▶
           </button>
-          <button type="button" onClick={() => fetchDuePurchases(`${API_BASE_URL}/purchases/due?page=${pagination.last_page}`, searchQuery)} disabled={pagination.current_page === pagination.last_page} className="bg-[#417690] hover:bg-[#345e73] text-white px-2.5 py-1 rounded text-xs font-bold transition disabled:opacity-40 cursor-pointer">
+          <button type="button" onClick={() => fetchDuePurchases(`/purchases/due?page=${pagination.last_page}`, searchQuery)} disabled={pagination.current_page === pagination.last_page} className="bg-[#417690] hover:bg-[#345e73] text-white px-2.5 py-1 rounded text-xs font-bold transition disabled:opacity-40 cursor-pointer">
             Last ⏭
           </button>
         </div>
@@ -312,7 +303,7 @@ export default function PurchaseDue() {
 
         <div className="md:hidden p-3">
           {loading && duePurchases.length === 0 ? (
-            <div className="text-center py-6 text-gray-400 text-xs">ডেটা লোড হচ্ছে...</div>
+            <div className="text-center py-6 text-gray-400 text-xs">Loading data...</div>
           ) : duePurchases.length > 0 ? (
             <div className="space-y-3">
               {duePurchases.map((item, index) => (
@@ -361,7 +352,7 @@ export default function PurchaseDue() {
               </div>
             </div>
           ) : (
-            <div className="text-center py-6 text-gray-400 text-xs">কোনো বাকি বা ডিউ ইনভয়েস পাওয়া যায়নি।</div>
+            <div className="text-center py-6 text-gray-400 text-xs">No due invoices found.</div>
           )}
         </div>
       </div>
@@ -413,9 +404,9 @@ export default function PurchaseDue() {
                   onChange={(e) => setPaymentType(e.target.value)}
                   className="w-full rounded-lg border-gray-300 p-2.5 bg-gray-50 border focus:border-[#417690] focus:bg-white outline-none text-sm font-medium text-gray-800"
                 >
-                  <option value="cash">Cash</option>
-                  <option value="bank">Bank</option>
-                  <option value="mobile banking">Mobile Banking</option>
+                  <option value="Cash">Cash</option>
+                  <option value="Bank">Bank</option>
+                  <option value="Mobile Banking">Mobile Banking</option>
                 </select>
               </div>
 

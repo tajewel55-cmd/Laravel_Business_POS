@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import axios from 'axios';
 import Flatpickr from 'react-flatpickr';
 import 'flatpickr/dist/themes/material_blue.css';
-
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+import API from '../api';
 
 const toLocalDateString = (date) => {
   if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
@@ -27,11 +25,6 @@ export default function Report_Salesinvoice() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: token ? `Bearer ${token}` : '' } };
-  };
-
   const fetchSalesInvoiceReport = async () => {
     if (!startDate || !endDate) {
       setSalesInvoiceData([]);
@@ -50,12 +43,13 @@ export default function Report_Salesinvoice() {
       setLoading(true);
       setError('');
 
-      let url = `${API_BASE_URL}/reports/sales-invoice?`;
-      if (startDate) url += `start_date=${encodeURIComponent(startDate)}&`;
-      if (endDate) url += `end_date=${encodeURIComponent(endDate)}&`;
-      if (searchQuery) url += `search=${encodeURIComponent(searchQuery)}`;
-
-      const response = await axios.get(url, getAuthHeaders());
+      const response = await API.get('/reports/sales-invoice', {
+        params: {
+          start_date: startDate,
+          end_date: endDate,
+          search: searchQuery || undefined,
+        },
+      });
 
       if (response.data && response.data.success) {
         setSalesInvoiceData(response.data.data || []);
@@ -66,7 +60,7 @@ export default function Report_Salesinvoice() {
       }
     } catch (err) {
       console.error('Error fetching sales invoice report:', err);
-      setError('Failed to load sales invoice report from server.');
+      setError(err.response?.data?.message || 'Failed to load sales invoice report from server.');
     } finally {
       setLoading(false);
     }
@@ -313,7 +307,7 @@ export default function Report_Salesinvoice() {
             onClick={handleClearFilters}
             className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded text-xs font-bold transition cursor-pointer"
           >
-            🔄 Clear Filter
+            🔄 Clear
           </button>
         </div>
       )}

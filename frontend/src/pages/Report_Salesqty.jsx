@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import axios from 'axios';
 import Flatpickr from 'react-flatpickr';
 import 'flatpickr/dist/themes/material_blue.css';
-
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+import API from '../api';
 
 const toLocalDateString = (date) => {
   if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
@@ -32,21 +30,21 @@ export default function Report_Salesqty() {
   // UI States
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [mounted, setMounted] = useState(false);
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: token ? `Bearer ${token}` : '' } };
-  };
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const fetchFilterOptions = async () => {
       try {
         const [catRes, manRes] = await Promise.all([
-          axios.get(`${API_BASE_URL}/categories`, getAuthHeaders()).catch(() => ({ data: { data: [] } })),
-          axios.get(`${API_BASE_URL}/manufacturers`, getAuthHeaders()).catch(() => ({ data: { data: [] } })),
+          API.get('/categories').catch(() => ({ data: { data: [] } })),
+          API.get('/manufacturers').catch(() => ({ data: { data: [] } })),
         ]);
-        setCategories(catRes.data.data || catRes.data || []);
-        setManufacturers(manRes.data.data || manRes.data || []);
+        setCategories(catRes.data?.data || catRes.data || []);
+        setManufacturers(manRes.data?.data || manRes.data || []);
       } catch (err) {
         console.error('Error loading filter options', err);
       }
@@ -72,14 +70,14 @@ export default function Report_Salesqty() {
       setLoading(true);
       setError('');
 
-      let url = `${API_BASE_URL}/reports/sales-qty?`;
-      if (startDate) url += `start_date=${encodeURIComponent(startDate)}&`;
-      if (endDate) url += `end_date=${encodeURIComponent(endDate)}&`;
-      if (searchQuery) url += `search=${encodeURIComponent(searchQuery)}&`;
-      if (selectedCategory) url += `category_id=${encodeURIComponent(selectedCategory)}&`;
-      if (selectedManufacturer) url += `manufacturer_id=${encodeURIComponent(selectedManufacturer)}`;
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (searchQuery.trim()) params.append('search', searchQuery.trim());
+      if (selectedCategory) params.append('category_id', selectedCategory);
+      if (selectedManufacturer) params.append('manufacturer_id', selectedManufacturer);
 
-      const response = await axios.get(url, getAuthHeaders());
+      const response = await API.get(`/reports/sales-qty?${params.toString()}`);
 
       if (response.data && response.data.success) {
         setSalesQtyData(response.data.data || []);
@@ -88,10 +86,12 @@ export default function Report_Salesqty() {
           total_sales_qty: response.data.total_sales_qty || 0,
           total_sales_value: response.data.total_sales_value || 0,
         });
+      } else {
+        setSalesQtyData(response.data?.data || []);
       }
     } catch (err) {
       console.error('Error fetching sales qty report:', err);
-      setError('Failed to load sales quantity report from server.');
+      setError(err.response?.data?.message || 'Failed to load sales quantity report from server.');
     } finally {
       setLoading(false);
     }
@@ -453,7 +453,7 @@ export default function Report_Salesqty() {
 
       </div>
 
-      {createPortal(printPortalContent, document.body)}
+      {mounted && createPortal(printPortalContent, document.body)}
     </div>
   );
 }

@@ -23,10 +23,23 @@ class ErrorBoundary extends React.Component {
 
   handleReset = () => {
     this.setState({ hasError: false, error: null });
+    
+    // যদি অভিভাবক কম্পোনেন্ট থেকে অন-রিসেট হ্যান্ডলার প্রপস হিসেবে দেওয়া থাকে
+    if (typeof this.props.onReset === 'function') {
+      this.props.onReset();
+    } else {
+      // স্টেট পরিবর্তন করার পর অ্যাপ পুনরায় ক্র্যাশ করা এড়াতে লাইভ/প্রোডাকশনে পেজ রিফ্রেশ দেওয়া নিরাপদ
+      window.location.reload();
+    }
   };
 
   render() {
     if (this.state.hasError) {
+      // ডেভেলপমেন্ট এনভায়রনমেন্ট চেক (Vite অথবা CRA/Webpack উভয় সাপোর্ট করে)
+      const isDevelopment =
+        (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'development') ||
+        (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV);
+
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
           <div className="max-w-md w-full bg-white border border-red-200 rounded-lg shadow-sm p-6 text-center">
@@ -36,15 +49,18 @@ class ErrorBoundary extends React.Component {
               অপ্রত্যাশিত একটি এরর হয়েছে। নিচের বাটনে ক্লিক করে আবার চেষ্টা করুন। সমস্যা থেকেই গেলে
               ব্রাউজারের কনসোল (F12 চেপে Console ট্যাব দেখুন) চেক করুন এবং ডেভেলপারকে জানান।
             </p>
-            {this.state.error?.message && (
-              <p className="text-[10px] text-gray-400 mb-4 break-all font-mono">
+
+            {/* সিকিউরিটি নিশ্চিত করতে শুধুমাত্র ডেভেলপমেন্ট এনভায়রনমেন্টেই এরর মেসেজটি দেখানো হবে */}
+            {isDevelopment && this.state.error?.message && (
+              <p className="text-[10px] text-gray-400 mb-4 break-all font-mono bg-gray-50 p-2 rounded border border-gray-100">
                 {String(this.state.error.message)}
               </p>
             )}
+
             <button
               onClick={this.handleReset}
               type="button"
-              className="bg-[#417690] hover:bg-[#345e73] text-white px-4 py-2 rounded text-sm font-semibold"
+              className="bg-[#417690] hover:bg-[#345e73] text-white px-4 py-2 rounded text-sm font-semibold transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[#417690] focus:ring-offset-1"
             >
               আবার চেষ্টা করুন
             </button>
@@ -52,7 +68,8 @@ class ErrorBoundary extends React.Component {
         </div>
       );
     }
-    return this.props.children;
+
+    return this.props.children || null;
   }
 }
 

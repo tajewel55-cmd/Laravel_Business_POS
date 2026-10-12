@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import API from '../api';
 
 // Small inline SVG icons for text buttons
 const IconPlus = ({ size = 16 }) => (
@@ -78,23 +78,24 @@ export default function Product() {
     }
   }, [success, error]);
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: `Bearer ${token}` } };
-  };
-
   const fetchData = async () => {
     try {
       const [prodRes, packRes, catRes, manRes] = await Promise.all([
-        axios.get('http://127.0.0.1:8000/api/products', getAuthHeaders()),
-        axios.get('http://127.0.0.1:8000/api/pack-sizes', getAuthHeaders()).catch(() => ({ data: { data: [] } })),
-        axios.get('http://127.0.0.1:8000/api/categories', getAuthHeaders()).catch(() => ({ data: { data: [] } })),
-        axios.get('http://127.0.0.1:8000/api/manufacturers', getAuthHeaders()).catch(() => ({ data: { data: [] } })),
+        API.get('/products'),
+        API.get('/pack-sizes').catch(() => ({ data: { data: [] } })),
+        API.get('/categories').catch(() => ({ data: { data: [] } })),
+        API.get('/manufacturers').catch(() => ({ data: { data: [] } })),
       ]);
-      setProducts(prodRes.data.data || []);
-      setPackSizes(packRes.data.data || []);
-      setCategories(catRes.data.data || []);
-      setManufacturers(manRes.data.data || []);
+
+      const prodData = prodRes.data?.data || prodRes.data || [];
+      const packData = packRes.data?.data || packRes.data || [];
+      const catData = catRes.data?.data || catRes.data || [];
+      const manData = manRes.data?.data || manRes.data || [];
+
+      setProducts(Array.isArray(prodData) ? prodData : []);
+      setPackSizes(Array.isArray(packData) ? packData : []);
+      setCategories(Array.isArray(catData) ? catData : []);
+      setManufacturers(Array.isArray(manData) ? manData : []);
     } catch (err) {
       console.error('Error fetching data', err);
       setError('Failed to load data from server.');
@@ -146,6 +147,11 @@ export default function Product() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (!productName.trim()) {
+      setError('Product Name is required.');
+      return;
+    }
+
     if (editId) {
       if (!window.confirm('Are you sure you want to update this product?')) {
         return;
@@ -169,10 +175,10 @@ export default function Product() {
 
     try {
       if (editId) {
-        await axios.put(`http://127.0.0.1:8000/api/products/${editId}`, payload, getAuthHeaders());
+        await API.put(`/products/${editId}`, payload);
         setSuccess('Product updated successfully!');
       } else {
-        await axios.post('http://127.0.0.1:8000/api/products', payload, getAuthHeaders());
+        await API.post('/products', payload);
         setSuccess('Product created successfully!');
       }
       resetForm();
@@ -195,12 +201,12 @@ export default function Product() {
     }
     if (window.confirm('Are you sure you want to delete this product?')) {
       try {
-        await axios.delete(`http://127.0.0.1:8000/api/products/${selectedId}`, getAuthHeaders());
+        await API.delete(`/products/${selectedId}`);
         setSuccess('Product deleted successfully!');
         resetForm();
         fetchData();
       } catch (err) {
-        setError('Failed to delete product.');
+        setError(err.response?.data?.message || 'Failed to delete product.');
       }
     }
   };
@@ -228,7 +234,7 @@ export default function Product() {
     const matchesSearch =
       item.product_name?.toLowerCase().includes(term) ||
       item.barcode?.toLowerCase().includes(term) ||
-      String(item.product_id).toLowerCase().includes(term);
+      String(item.product_id || '').toLowerCase().includes(term);
 
     const matchesCategory = selectedCategoryFilter ? String(item.category_id) === String(selectedCategoryFilter) : true;
     const matchesManufacturer = selectedManufacturerFilter ? String(item.manufacturer_id) === String(selectedManufacturerFilter) : true;
@@ -483,16 +489,17 @@ export default function Product() {
           <button
             type="submit"
             disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconPlus size={14} />
-            {editId ? 'Update' : 'Save'}
+            {loading ? 'Processing...' : editId ? 'Update' : 'Save'}
           </button>
           <button
             type="button"
             onClick={handleDeleteIconClick}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            disabled={loading}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconX size={14} />

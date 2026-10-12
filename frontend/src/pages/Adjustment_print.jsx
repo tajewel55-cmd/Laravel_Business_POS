@@ -1,12 +1,10 @@
 import React from 'react';
 
-// সবসময় একটা নিরাপদ, non-negative সংখ্যা রিটার্ন করবে, কখনো NaN রিটার্ন করবে না
 const toSafeNumber = (value, fallback = 0) => {
   const num = parseFloat(value);
   return Number.isFinite(num) ? Math.max(0, num) : fallback;
 };
 
-// যেকোনো ভ্যালুকে নিরাপদে একটা প্লেইন টেক্সট স্ট্রিং বানায়
 const safeText = (value, fallback = '') => {
   if (value === null || value === undefined) return fallback;
   if (typeof value === 'object') return fallback;

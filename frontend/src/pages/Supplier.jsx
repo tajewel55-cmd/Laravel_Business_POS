@@ -1,5 +1,11 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import API from '../api';
+
+const BASE_URL = 
+  (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 
+  (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_BASE_URL) || 
+  'http://127.0.0.1:8000/api';
 
 // Small inline SVG icons for text buttons
 const IconPlus = ({ size = 16 }) => (
@@ -59,26 +65,27 @@ export default function Supplier() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Auto-hide success or error messages after 2 seconds
+  // Auto-hide success or error messages after 3 seconds
   useEffect(() => {
     if (success || error) {
       const timer = setTimeout(() => {
         setSuccess('');
         setError('');
-      }, 2000);
+      }, 3000);
       return () => clearTimeout(timer);
     }
   }, [success, error]);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: `Bearer ${token}` } };
+    return { headers: { Authorization: token ? `Bearer ${token}` : '' } };
   };
 
   const fetchSuppliers = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/api/suppliers', getAuthHeaders());
-      setSuppliers(response.data.data || []);
+      const response = await axios.get(`${BASE_URL}/suppliers`, getAuthHeaders());
+      const data = response.data?.data || response.data || [];
+      setSuppliers(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error fetching suppliers', err);
       setError('Failed to load data from server.');
@@ -105,7 +112,7 @@ export default function Supplier() {
     setPhone(item.phone || '');
     setEmail(item.email || '');
     setAddress(item.address || '');
-    setIsActive(item.is_active ?? 1);
+    setIsActive(Boolean(item.is_active ?? 1));
     setError('');
     setSuccess('');
   };
@@ -123,6 +130,11 @@ export default function Supplier() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!supplierName.trim()) {
+      setError('Supplier Name is required.');
+      return;
+    }
 
     if (editId) {
       if (!window.confirm('Are you sure you want to update this supplier?')) {
@@ -144,10 +156,10 @@ export default function Supplier() {
 
     try {
       if (editId) {
-        await axios.put(`http://127.0.0.1:8000/api/suppliers/${editId}`, payload, getAuthHeaders());
+        await axios.put(`${BASE_URL}/suppliers/${editId}`, payload, getAuthHeaders());
         setSuccess('Supplier updated successfully!');
       } else {
-        await axios.post('http://127.0.0.1:8000/api/suppliers', payload, getAuthHeaders());
+        await axios.post(`${BASE_URL}/suppliers`, payload, getAuthHeaders());
         setSuccess('Supplier created successfully!');
       }
       resetForm();
@@ -167,12 +179,12 @@ export default function Supplier() {
     }
     if (window.confirm('Are you sure you want to delete this supplier?')) {
       try {
-        await axios.delete(`http://127.0.0.1:8000/api/suppliers/${selectedId}`, getAuthHeaders());
+        await axios.delete(`${BASE_URL}/suppliers/${selectedId}`, getAuthHeaders());
         setSuccess('Supplier deleted successfully!');
         resetForm();
         fetchSuppliers();
       } catch (err) {
-        setError('Failed to delete supplier.');
+        setError(err.response?.data?.message || 'Failed to delete supplier.');
       }
     }
   };
@@ -196,10 +208,10 @@ export default function Supplier() {
   const filteredSuppliers = suppliers.filter((item) => {
     const term = searchTerm.toLowerCase();
     return (
-      item.supplier_name?.toLowerCase().includes(term) ||
-      item.phone?.toLowerCase().includes(term) ||
-      item.email?.toLowerCase().includes(term) ||
-      String(item.supplier_id).toLowerCase().includes(term)
+      (item.supplier_name && item.supplier_name.toLowerCase().includes(term)) ||
+      (item.phone && item.phone.toLowerCase().includes(term)) ||
+      (item.email && item.email.toLowerCase().includes(term)) ||
+      String(item.supplier_id || '').toLowerCase().includes(term)
     );
   });
 
@@ -209,11 +221,9 @@ export default function Supplier() {
 
   let displayedSuppliers = [];
   if (selectedId) {
-    const selectedItem = suppliers.find(s => s.supplier_id === selectedId);
+    const selectedItem = suppliers.find((s) => s.supplier_id === selectedId);
     displayedSuppliers = selectedItem ? [selectedItem] : [];
-  } else if (showAllRows) {
-    displayedSuppliers = sortedSuppliers;
-  } else if (isFilteringActive) {
+  } else if (showAllRows || isFilteringActive) {
     displayedSuppliers = sortedSuppliers;
   } else {
     displayedSuppliers = suppliers.length > 0 ? [[...suppliers].sort((a, b) => b.supplier_id - a.supplier_id)[0]] : [];
@@ -347,16 +357,17 @@ export default function Supplier() {
           <button
             type="submit"
             disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconPlus size={14} />
-            {editId ? 'Update' : 'Save'}
+            {loading ? 'Processing...' : editId ? 'Update' : 'Save'}
           </button>
           <button
             type="button"
             onClick={handleDeleteIconClick}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            disabled={loading}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconX size={14} />

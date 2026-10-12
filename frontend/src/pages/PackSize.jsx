@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import API from '../api';
 
 // Small inline SVG icons for text buttons
 const IconPlus = ({ size = 16 }) => (
@@ -67,15 +67,11 @@ export default function PackSize() {
     }
   }, [success, error]);
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: `Bearer ${token}` } };
-  };
-
   const fetchPackSizes = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/api/pack-sizes', getAuthHeaders());
-      setPackSizes(response.data.data || []);
+      const response = await API.get('/pack-sizes');
+      const data = response.data?.data || response.data || [];
+      setPackSizes(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error fetching pack sizes', err);
       setError('Failed to load data from server.');
@@ -115,6 +111,11 @@ export default function PackSize() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (!packSizeName.trim()) {
+      setError('Pack Size Name is required.');
+      return;
+    }
+
     if (editId) {
       if (!window.confirm('Are you sure you want to update this pack size?')) {
         return;
@@ -132,10 +133,10 @@ export default function PackSize() {
 
     try {
       if (editId) {
-        await axios.put(`http://127.0.0.1:8000/api/pack-sizes/${editId}`, payload, getAuthHeaders());
+        await API.put(`/pack-sizes/${editId}`, payload);
         setSuccess('Pack size updated successfully!');
       } else {
-        await axios.post('http://127.0.0.1:8000/api/pack-sizes', payload, getAuthHeaders());
+        await API.post('/pack-sizes', payload);
         setSuccess('Pack size created successfully!');
       }
       resetForm();
@@ -155,12 +156,12 @@ export default function PackSize() {
     }
     if (window.confirm('Are you sure you want to delete this pack size?')) {
       try {
-        await axios.delete(`http://127.0.0.1:8000/api/pack-sizes/${selectedId}`, getAuthHeaders());
+        await API.delete(`/pack-sizes/${selectedId}`);
         setSuccess('Pack size deleted successfully!');
         resetForm();
         fetchPackSizes();
       } catch (err) {
-        setError('Failed to delete pack size.');
+        setError(err.response?.data?.message || 'Failed to delete pack size.');
       }
     }
   };
@@ -186,7 +187,7 @@ export default function PackSize() {
     return (
       item.pack_size_name?.toLowerCase().includes(term) ||
       item.pack_size_slug?.toLowerCase().includes(term) ||
-      String(item.pack_size_id).toLowerCase().includes(term)
+      String(item.pack_size_id || '').toLowerCase().includes(term)
     );
   });
 
@@ -196,7 +197,7 @@ export default function PackSize() {
 
   let displayedPackSizes = [];
   if (selectedId) {
-    const selectedItem = packSizes.find(p => p.pack_size_id === selectedId);
+    const selectedItem = packSizes.find((p) => p.pack_size_id === selectedId);
     displayedPackSizes = selectedItem ? [selectedItem] : [];
   } else if (showAllRows) {
     displayedPackSizes = sortedPackSizes;
@@ -305,16 +306,17 @@ export default function PackSize() {
           <button
             type="submit"
             disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconPlus size={14} />
-            {editId ? 'Update' : 'Save'}
+            {loading ? 'Processing...' : editId ? 'Update' : 'Save'}
           </button>
           <button
             type="button"
             onClick={handleDeleteIconClick}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            disabled={loading}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconX size={14} />
@@ -388,14 +390,14 @@ export default function PackSize() {
                     <td className="px-6 py-4 text-gray-500 border-r border-gray-200">
                       {item.pack_size_slug}
                     </td>
-                        <td className="px-3 py-2 text-xs whitespace-nowrap">
-                          <span
-                            className="px-2 py-0.5 rounded text-white text-[11px]"
-                            style={{ background: item.is_active ? BRAND : '#9ca3af' }}
-                          >
-                            {item.is_active ? 'Active' : 'Inactive'}
-                          </span>
-                        </td>
+                    <td className="px-3 py-2 text-xs whitespace-nowrap">
+                      <span
+                        className="px-2 py-0.5 rounded text-white text-[11px]"
+                        style={{ background: item.is_active ? BRAND : '#9ca3af' }}
+                      >
+                        {item.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
                   </tr>
                 );
               })

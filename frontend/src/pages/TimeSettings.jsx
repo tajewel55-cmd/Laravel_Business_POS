@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import API from '../api';
 
 // Small inline SVG icons for text buttons
 const IconPlus = ({ size = 16 }) => (
@@ -8,6 +8,7 @@ const IconPlus = ({ size = 16 }) => (
     <line x1="5" y1="12" x2="19" y2="12" />
   </svg>
 );
+
 const IconRefresh = ({ size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.23-5.23" />
@@ -38,21 +39,15 @@ export default function TimeSettings() {
     }
   }, [success, error]);
 
-  // টোকেন না থাকলে আগে "Bearer undefined"/"Bearer null" পাঠানো হতো — এখন সেক্ষেত্রে খালি স্ট্রিং পাঠাবে
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: token ? `Bearer ${token}` : '' } };
-  };
-
   const fetchTimeSettings = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/api/time-settings', getAuthHeaders());
-      if (response.data && response.data.data) {
-        setFormData({
-          hours: response.data.data.hours ?? '',
-          is_active: response.data.data.is_active ?? 'Active / Standard'
-        });
-      }
+      const response = await API.get('/time-settings');
+      const data = response.data?.data || response.data || {};
+      
+      setFormData({
+        hours: data.hours ?? '',
+        is_active: data.is_active ?? 'Active / Standard'
+      });
     } catch (err) {
       console.error('Error fetching time settings', err);
       setError('Failed to load time settings.');
@@ -70,17 +65,30 @@ export default function TimeSettings() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!formData.hours.toString().trim()) {
+      setError('Hours / Time Value is required.');
+      return;
+    }
+
     setLoading(true);
     setError('');
     setSuccess('');
 
+    const payload = {
+      hours: formData.hours.toString().trim(),
+      is_active: formData.is_active
+    };
+
     try {
-      const response = await axios.post('http://127.0.0.1:8000/api/time-settings', formData, getAuthHeaders());
-      setSuccess(response.data.message || 'Time settings saved successfully!');
-      if (response.data && response.data.data) {
+      const response = await API.post('/time-settings', payload);
+      setSuccess(response.data?.message || 'Time settings saved successfully!');
+      
+      const data = response.data?.data || response.data || {};
+      if (data) {
         setFormData({
-          hours: response.data.data.hours ?? '',
-          is_active: response.data.data.is_active ?? 'Active / Standard'
+          hours: data.hours ?? payload.hours,
+          is_active: data.is_active ?? 'Active / Standard'
         });
       }
     } catch (err) {
@@ -91,9 +99,6 @@ export default function TimeSettings() {
     }
   };
 
-  // আগে "Show" ও "Clear" — দুইটা আলাদা বাটন ছিল যারা কার্যত প্রায় একই কাজ করত
-  // (দুটোই শেষ পর্যন্ত সার্ভার থেকে আবার ডেটা লোড করত)। এখন একটা বাটনেই
-  // মিলিয়ে দেওয়া হয়েছে: "Reset / Reload"
   const handleResetReload = () => {
     fetchTimeSettings();
     setError('');
@@ -171,12 +176,12 @@ export default function TimeSettings() {
 
         </div>
 
-        {/* Action bar — এখন শুধু ২টা বাটন: Save Changes ও Reset / Reload */}
+        {/* Action bar — Save Changes & Reset / Reload */}
         <div className="flex flex-wrap items-center justify-center gap-2 py-3 px-4 mt-6 rounded shadow-md" style={{ background: BRAND }}>
           <button
             type="submit"
             disabled={loading}
-            className="flex items-center gap-1.5 px-5 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            className="flex items-center gap-1.5 px-5 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconPlus size={14} />
@@ -185,7 +190,8 @@ export default function TimeSettings() {
           <button
             type="button"
             onClick={handleResetReload}
-            className="flex items-center gap-1.5 px-5 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            disabled={loading}
+            className="flex items-center gap-1.5 px-5 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconRefresh size={14} />

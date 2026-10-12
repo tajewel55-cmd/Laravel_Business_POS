@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import API from '../api'; 
 
 // Small inline SVG icons for text buttons
 const IconPlus = ({ size = 16 }) => (
@@ -67,15 +67,11 @@ export default function Category() {
     }
   }, [success, error]);
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: `Bearer ${token}` } };
-  };
-
   const fetchCategories = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/api/categories', getAuthHeaders());
-      setCategories(response.data.data || []);
+      const response = await API.get('/categories');
+      const data = response.data?.data || response.data || [];
+      setCategories(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error fetching categories', err);
       setError('Failed to load data from server.');
@@ -96,7 +92,7 @@ export default function Category() {
   const loadIntoForm = (item) => {
     setEditId(item.category_id);
     setCategoryName(item.category_name || '');
-    setIsActive(item.is_active ?? 1);
+    setIsActive(Boolean(item.is_active));
     setError('');
     setSuccess('');
   };
@@ -115,6 +111,11 @@ export default function Category() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (!categoryName.trim()) {
+      setError('Category Name is required.');
+      return;
+    }
+
     if (editId) {
       if (!window.confirm('Are you sure you want to update this category?')) {
         return;
@@ -132,10 +133,10 @@ export default function Category() {
 
     try {
       if (editId) {
-        await axios.put(`http://127.0.0.1:8000/api/categories/${editId}`, payload, getAuthHeaders());
+        await API.put(`/categories/${editId}`, payload);
         setSuccess('Category updated successfully!');
       } else {
-        await axios.post('http://127.0.0.1:8000/api/categories', payload, getAuthHeaders());
+        await API.post('/categories', payload);
         setSuccess('Category created successfully!');
       }
       resetForm();
@@ -155,12 +156,12 @@ export default function Category() {
     }
     if (window.confirm('Are you sure you want to delete this category?')) {
       try {
-        await axios.delete(`http://127.0.0.1:8000/api/categories/${selectedId}`, getAuthHeaders());
+        await API.delete(`/categories/${selectedId}`);
         setSuccess('Category deleted successfully!');
         resetForm();
         fetchCategories();
       } catch (err) {
-        setError('Failed to delete category.');
+        setError(err.response?.data?.message || 'Failed to delete category.');
       }
     }
   };
@@ -186,7 +187,7 @@ export default function Category() {
     return (
       item.category_name?.toLowerCase().includes(term) ||
       item.category_slug?.toLowerCase().includes(term) ||
-      String(item.category_id).toLowerCase().includes(term)
+      String(item.category_id || '').toLowerCase().includes(term)
     );
   });
 
@@ -196,7 +197,7 @@ export default function Category() {
 
   let displayedCategories = [];
   if (selectedId) {
-    const selectedItem = categories.find(m => m.category_id === selectedId);
+    const selectedItem = categories.find((m) => m.category_id === selectedId);
     displayedCategories = selectedItem ? [selectedItem] : [];
   } else if (showAllRows) {
     displayedCategories = sortedCategories;
@@ -305,16 +306,17 @@ export default function Category() {
           <button
             type="submit"
             disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconPlus size={14} />
-            {editId ? 'Update' : 'Save'}
+            {loading ? 'Processing...' : editId ? 'Update' : 'Save'}
           </button>
           <button
             type="button"
             onClick={handleDeleteIconClick}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            disabled={loading}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconX size={14} />
@@ -388,14 +390,14 @@ export default function Category() {
                     <td className="px-6 py-4 text-gray-500 border-r border-gray-200">
                       {item.category_slug}
                     </td>
-                        <td className="px-3 py-2 text-xs whitespace-nowrap">
-                          <span
-                            className="px-2 py-0.5 rounded text-white text-[11px]"
-                            style={{ background: item.is_active ? BRAND : '#9ca3af' }}
-                          >
-                            {item.is_active ? 'Active' : 'Inactive'}
-                          </span>
-                        </td>
+                    <td className="px-3 py-2 text-xs whitespace-nowrap">
+                      <span
+                        className="px-2 py-0.5 rounded text-white text-[11px]"
+                        style={{ background: item.is_active ? BRAND : '#9ca3af' }}
+                      >
+                        {item.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
                   </tr>
                 );
               })

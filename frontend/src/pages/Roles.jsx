@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import API from '../api';
 
 // Small inline SVG icons for text buttons
 const IconPlus = ({ size = 16 }) => (
@@ -64,17 +64,11 @@ export default function Roles() {
     }
   }, [success, error]);
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return {
-      headers: { Authorization: `Bearer ${token}` }
-    };
-  };
-
   const fetchRoles = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/api/roles', getAuthHeaders());
-      setRoles(response.data.data || []);
+      const response = await API.get('/roles');
+      const data = response.data?.data || response.data || [];
+      setRoles(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error fetching roles', err);
       setError('Failed to load roles from server.');
@@ -112,6 +106,11 @@ export default function Roles() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (!roleName.trim()) {
+      setError('Role Name is required.');
+      return;
+    }
+
     if (editId) {
       if (!window.confirm('Are you sure you want to update this role?')) {
         return;
@@ -123,15 +122,15 @@ export default function Roles() {
     setSuccess('');
 
     const payload = {
-      role_name: roleName.trim()
+      role_name: roleName.trim(),
     };
 
     try {
       if (editId) {
-        await axios.put(`http://127.0.0.1:8000/api/roles/${editId}`, payload, getAuthHeaders());
+        await API.put(`/roles/${editId}`, payload);
         setSuccess('Role updated successfully!');
       } else {
-        await axios.post('http://127.0.0.1:8000/api/roles', payload, getAuthHeaders());
+        await API.post('/roles', payload);
         setSuccess('Role created successfully!');
       }
       resetForm();
@@ -150,12 +149,12 @@ export default function Roles() {
     }
     if (window.confirm('Are you sure you want to delete this role?')) {
       try {
-        await axios.delete(`http://127.0.0.1:8000/api/roles/${selectedId}`, getAuthHeaders());
+        await API.delete(`/roles/${selectedId}`);
         setSuccess('Role deleted successfully!');
         resetForm();
         fetchRoles();
       } catch (err) {
-        setError('Failed to delete role.');
+        setError(err.response?.data?.message || 'Failed to delete role.');
       }
     }
   };
@@ -190,7 +189,7 @@ export default function Roles() {
     return (
       role.role_name?.toLowerCase().includes(term) ||
       formattedName.includes(term) ||
-      String(role.role_id).toLowerCase().includes(term)
+      String(role.role_id || '').toLowerCase().includes(term)
     );
   });
 
@@ -199,7 +198,7 @@ export default function Roles() {
 
   let displayedRoles = [];
   if (selectedId) {
-    const selectedItem = roles.find(r => r.role_id === selectedId);
+    const selectedItem = roles.find((r) => r.role_id === selectedId);
     displayedRoles = selectedItem ? [selectedItem] : [];
   } else if (showAllRows) {
     displayedRoles = sortedRoles;
@@ -306,16 +305,17 @@ export default function Roles() {
           <button
             type="submit"
             disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconPlus size={14} />
-            {editId ? 'Update' : 'Save'}
+            {loading ? 'Processing...' : editId ? 'Update' : 'Save'}
           </button>
           <button
             type="button"
             onClick={handleDeleteIconClick}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            disabled={loading}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconX size={14} />

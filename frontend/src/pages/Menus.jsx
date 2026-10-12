@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import API from '../api';
 
 // Small inline SVG icons
 const IconPlus = ({ size = 16 }) => (
@@ -72,15 +72,11 @@ export default function Menus() {
     }
   }, [success, error]);
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: `Bearer ${token}` } };
-  };
-
   const fetchMenus = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/api/menus', getAuthHeaders());
-      setMenus(response.data.data || []);
+      const response = await API.get('/menus');
+      const data = response.data?.data || response.data || [];
+      setMenus(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error fetching menus', err);
       setError('Failed to load menu data from server.');
@@ -113,7 +109,7 @@ export default function Menus() {
       route_name: item.route_name || '',
       icon: item.icon || '',
       parent_id: item.parent_id || '',
-      order_position: item.order_position || 0,
+      order_position: item.order_position ?? 0,
       is_active: item.is_active ?? true
     });
     setError('');
@@ -135,11 +131,16 @@ export default function Menus() {
   const handleTitleChange = (e) => {
     const title = e.target.value;
     const slug = title.trim().toLowerCase().replace(/[\s]+/g, '_');
-    setFormData({ ...formData, menu_title: title, menu_slug: slug });
+    setFormData((prev) => ({ ...prev, menu_title: title, menu_slug: slug }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!formData.menu_title.trim()) {
+      setError('Menu Title is required.');
+      return;
+    }
 
     if (editId) {
       if (!window.confirm('Are you sure you want to update this menu?')) {
@@ -151,12 +152,20 @@ export default function Menus() {
     setError('');
     setSuccess('');
 
+    const payload = {
+      ...formData,
+      menu_title: formData.menu_title.trim(),
+      menu_slug: formData.menu_slug.trim(),
+      parent_id: formData.parent_id || null,
+      order_position: Number(formData.order_position) || 0
+    };
+
     try {
       if (editId) {
-        await axios.put(`http://127.0.0.1:8000/api/menus/${editId}`, formData, getAuthHeaders());
+        await API.put(`/menus/${editId}`, payload);
         setSuccess('Menu updated successfully!');
       } else {
-        await axios.post('http://127.0.0.1:8000/api/menus', formData, getAuthHeaders());
+        await API.post('/menus', payload);
         setSuccess('Menu created successfully!');
       }
       resetForm();
@@ -175,12 +184,12 @@ export default function Menus() {
     }
     if (window.confirm('Are you sure you want to delete this menu?')) {
       try {
-        await axios.delete(`http://127.0.0.1:8000/api/menus/${selectedId}`, getAuthHeaders());
+        await API.delete(`/menus/${selectedId}`);
         setSuccess('Menu deleted successfully!');
         resetForm();
         fetchMenus();
       } catch (err) {
-        setError('Failed to delete menu.');
+        setError(err.response?.data?.message || 'Failed to delete menu.');
       }
     }
   };
@@ -207,7 +216,7 @@ export default function Menus() {
       item.menu_title?.toLowerCase().includes(term) ||
       item.menu_slug?.toLowerCase().includes(term) ||
       item.route_name?.toLowerCase().includes(term) ||
-      String(item.menu_id).toLowerCase().includes(term)
+      String(item.menu_id || '').toLowerCase().includes(term)
     );
   });
 
@@ -216,7 +225,7 @@ export default function Menus() {
 
   let displayedMenus = [];
   if (selectedId) {
-    const selectedItem = menus.find(m => m.menu_id === selectedId);
+    const selectedItem = menus.find((m) => m.menu_id === selectedId);
     displayedMenus = selectedItem ? [selectedItem] : [];
   } else if (showAllRows) {
     displayedMenus = sortedMenus;
@@ -349,7 +358,7 @@ export default function Menus() {
                     className={inputCls}
                   >
                     <option value="">Select Parent Menu</option>
-                    {menus.filter(m => !m.parent_id && m.menu_id !== editId).map(m => (
+                    {menus.filter((m) => !m.parent_id && m.menu_id !== editId).map((m) => (
                       <option key={m.menu_id} value={m.menu_id}>{m.menu_title}</option>
                     ))}
                   </select>
@@ -392,16 +401,17 @@ export default function Menus() {
           <button
             type="submit"
             disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-95 transition shadow"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-95 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconPlus size={14} />
-            {editId ? 'Update' : 'Save'}
+            {loading ? 'Processing...' : editId ? 'Update' : 'Save'}
           </button>
           <button
             type="button"
             onClick={handleDeleteIconClick}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-95 transition shadow"
+            disabled={loading}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-95 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconX size={14} />

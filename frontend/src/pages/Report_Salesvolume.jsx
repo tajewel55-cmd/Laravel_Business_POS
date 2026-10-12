@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import axios from 'axios';
+import API from '../api';
 import Flatpickr from 'react-flatpickr';
 import 'flatpickr/dist/themes/material_blue.css';
-
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
 const toLocalDateString = (date) => {
   if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
@@ -25,11 +23,6 @@ export default function Report_Salesvolume() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: token ? `Bearer ${token}` : '' } };
-  };
-
   const fetchSalesVolumeReport = async () => {
     if (!startDate || !endDate) {
       setSummary({ total_sales_amount: 0, total_due_amount: 0 });
@@ -46,18 +39,22 @@ export default function Report_Salesvolume() {
       setLoading(true);
       setError('');
 
-      let url = `${API_BASE_URL}/reports/sales-volume?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
-      const response = await axios.get(url, getAuthHeaders());
+      const response = await API.get('/reports/sales-volume', {
+        params: {
+          start_date: startDate,
+          end_date: endDate,
+        },
+      });
 
-      if (response.data && response.data.success) {
+      if (response.data && (response.data.success || response.status === 200)) {
         setSummary({
-          total_sales_amount: response.data.total_sales_amount || 0,
-          total_due_amount: response.data.total_due_amount || 0,
+          total_sales_amount: response.data.total_sales_amount || response.data.data?.total_sales_amount || 0,
+          total_due_amount: response.data.total_due_amount || response.data.data?.total_due_amount || 0,
         });
       }
     } catch (err) {
       console.error('Error fetching sales volume report:', err);
-      setError('Failed to load sales volume report from server.');
+      setError(err.response?.data?.message || 'Failed to load sales volume report from server.');
     } finally {
       setLoading(false);
     }
@@ -96,11 +93,11 @@ export default function Report_Salesvolume() {
       <div className="grid grid-cols-2 gap-4 max-w-lg mx-auto">
         <div className="border border-gray-300 p-4 rounded-lg text-center">
           <p className="text-sm font-semibold text-gray-600 uppercase">Total Sales Amount</p>
-          <p className="text-2xl font-bold text-[#417690] mt-2">৳{Number(summary.total_sales_amount).toFixed(2)}</p>
+          <p className="text-2xl font-bold text-[#417690] mt-2">৳{Number(summary.total_sales_amount || 0).toFixed(2)}</p>
         </div>
         <div className="border border-gray-300 p-4 rounded-lg text-center">
           <p className="text-sm font-semibold text-gray-600 uppercase">Total Due Amount</p>
-          <p className="text-2xl font-bold text-red-600 mt-2">৳{Number(summary.total_due_amount).toFixed(2)}</p>
+          <p className="text-2xl font-bold text-red-600 mt-2">৳{Number(summary.total_due_amount || 0).toFixed(2)}</p>
         </div>
       </div>
     </div>
@@ -223,7 +220,7 @@ export default function Report_Salesvolume() {
             onClick={handleClearFilters}
             className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded text-xs font-bold transition cursor-pointer"
           >
-            🔄 Clear Filter
+            🔄 Clear
           </button>
         </div>
       )}
@@ -240,28 +237,28 @@ export default function Report_Salesvolume() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-3xl mx-auto py-4">
             
             {/* Sales Amount Card */}
-            <div className="bg-linear-to-br from-blue-50 to-white border border-blue-200 rounded-xl p-6 shadow-sm flex flex-col justify-between transition hover:shadow-md">
+            <div className="bg-gradient-to-br from-blue-50 to-white border border-blue-200 rounded-xl p-6 shadow-sm flex flex-col justify-between transition hover:shadow-md">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold tracking-wider text-[#417690] uppercase">Total Sales Amount</span>
                 <span className="text-2xl">💰</span>
               </div>
               <div className="mt-4">
                 <h3 className="text-2xl sm:text-3xl font-extrabold text-[#417690]">
-                  ৳{Number(summary.total_sales_amount).toFixed(2)}
+                  ৳{Number(summary.total_sales_amount || 0).toFixed(2)}
                 </h3>
                 <p className="text-[11px] text-gray-500 mt-1">Selected period total sales volume</p>
               </div>
             </div>
 
             {/* Due Amount Card */}
-            <div className="bg-linear-to-br from-red-50 to-white border border-red-200 rounded-xl p-6 shadow-sm flex flex-col justify-between transition hover:shadow-md">
+            <div className="bg-gradient-to-br from-red-50 to-white border border-red-200 rounded-xl p-6 shadow-sm flex flex-col justify-between transition hover:shadow-md">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold tracking-wider text-red-600 uppercase">Total Due Amount</span>
                 <span className="text-2xl">⚠️</span>
               </div>
               <div className="mt-4">
                 <h3 className="text-2xl sm:text-3xl font-extrabold text-red-600">
-                  ৳{Number(summary.total_due_amount).toFixed(2)}
+                  ৳{Number(summary.total_due_amount || 0).toFixed(2)}
                 </h3>
                 <p className="text-[11px] text-gray-500 mt-1">Selected period total due volume</p>
               </div>

@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import axios from 'axios';
+import API from '../api';
 import Flatpickr from 'react-flatpickr';
 import 'flatpickr/dist/themes/material_blue.css';
-
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
 export default function SaleDue() {
   const [dueSales, setDueSales] = useState([]);
@@ -29,12 +27,7 @@ export default function SaleDue() {
   const [payLoading, setPayLoading] = useState(false);
   const [payError, setPayError] = useState('');
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: token ? `Bearer ${token}` : '' } };
-  };
-
-  const fetchDueSales = async (url = `${API_BASE_URL}/sales/due`, customSearch = '', isAll = false) => {
+  const fetchDueSales = async (url = '/sales/due', customSearch = '', isAll = false) => {
     try {
       setLoading(true);
       setError('');
@@ -47,14 +40,18 @@ export default function SaleDue() {
         params.all = true;
       }
 
-      const response = await axios.get(url, {
-        ...getAuthHeaders(),
-        params
-      });
+      // Extract endpoint path if full URL is passed from pagination
+      let endpoint = url;
+      if (url.includes('/sales/due')) {
+        const queryParams = url.split('/sales/due')[1] || '';
+        endpoint = `/sales/due${queryParams}`;
+      }
+
+      const response = await API.get(endpoint, { params });
 
       if (response.data && response.data.success) {
         const resData = response.data.data;
-        setDueSales(resData.data || resData);
+        setDueSales(resData.data || resData || []);
         setPagination({
           current_page: resData.current_page || 1,
           last_page: resData.last_page || 1,
@@ -64,7 +61,7 @@ export default function SaleDue() {
       }
     } catch (err) {
       console.error('Error fetching due sales:', err);
-      setError('বাকি বিক্রির ইনভয়েসগুলোর তালিকা লোড করতে ব্যর্থ হয়েছে।');
+      setError('Failed to load the list of due invoices.');
     } finally {
       setLoading(false);
     }
@@ -77,22 +74,22 @@ export default function SaleDue() {
   const handleSearchChange = (e) => {
     const val = e.target.value;
     setSearchQuery(val);
-    fetchDueSales(`${API_BASE_URL}/sales/due`, val);
+    fetchDueSales('/sales/due', val);
   };
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
-    fetchDueSales(`${API_BASE_URL}/sales/due`, searchQuery);
+    fetchDueSales('/sales/due', searchQuery);
   };
 
   const handleClear = () => {
     setSearchQuery('');
-    fetchDueSales(`${API_BASE_URL}/sales/due`, '');
+    fetchDueSales('/sales/due', '');
   };
 
   const handleAllDue = () => {
     setSearchQuery('');
-    fetchDueSales(`${API_BASE_URL}/sales/due`, '', true);
+    fetchDueSales('/sales/due', '', true);
   };
 
   const handlePrint = () => {
@@ -111,7 +108,7 @@ export default function SaleDue() {
   const handleAmountChange = (e) => {
     const val = e.target.value;
     if (selectedSale) {
-      const maxDue = Number(selectedSale.due_amount);
+      const maxDue = Number(selectedSale.due_amount || 0);
       if (Number(val) > maxDue) {
         setPaidAmount(maxDue.toString());
       } else {
@@ -130,9 +127,13 @@ export default function SaleDue() {
       setPayLoading(true);
       setPayError('');
 
-      const formattedDate = paymentDate instanceof Date 
-        ? paymentDate.toISOString().split('T')[0] 
-        : new Date(paymentDate).toISOString().split('T')[0];
+      let formattedDate = '';
+      if (paymentDate instanceof Date && !isNaN(paymentDate.getTime())) {
+        formattedDate = paymentDate.toISOString().split('T')[0];
+      } else if (paymentDate) {
+        const d = new Date(paymentDate);
+        formattedDate = !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : '';
+      }
 
       const payload = {
         paid_amount: parseFloat(paidAmount) || 0,
@@ -140,21 +141,17 @@ export default function SaleDue() {
         payment_date: formattedDate,
       };
 
-      const response = await axios.post(
-        `${API_BASE_URL}/sales/${selectedSale.sale_id}/pay-due`,
-        payload,
-        getAuthHeaders()
-      );
+      const response = await API.post(`/sales/${selectedSale.sale_id}/pay-due`, payload);
 
       if (response.data && response.data.success) {
         setSuccessMessage('Payment successfully added!');
         setIsModalOpen(false);
-        fetchDueSales(`${API_BASE_URL}/sales/due`, searchQuery);
+        fetchDueSales('/sales/due', searchQuery);
         setTimeout(() => setSuccessMessage(''), 3000);
       }
     } catch (err) {
       console.error('Error submitting payment:', err);
-      setPayError(err.response?.data?.message || 'পেমেন্ট জমা দিতে সমস্যা হয়েছে।');
+      setPayError(err.response?.data?.message || 'Error submitting the payment.');
     } finally {
       setPayLoading(false);
     }
@@ -181,7 +178,7 @@ export default function SaleDue() {
       <tbody className="divide-y divide-gray-100 text-sm">
         {loading && dueSales.length === 0 ? (
           <tr>
-            <td colSpan="8" className="text-center py-6 text-gray-400 text-xs">ডেটা লোড হচ্ছে...</td>
+            <td colSpan="8" className="text-center py-6 text-gray-400 text-xs">Loading data...</td>
           </tr>
         ) : dueSales.length > 0 ? (
           dueSales.map((item, index) => (
@@ -193,9 +190,9 @@ export default function SaleDue() {
                 <div className="font-semibold text-gray-800">{item.customer_name || 'Walk-in Customer'}</div>
                 <div className="text-xs text-gray-500">{item.customer_phone || 'N/A'}</div>
               </td>
-              <td className="p-3 text-right font-medium">৳ {Number(item.payable_amount).toFixed(2)}</td>
-              <td className="p-3 text-right font-medium text-emerald-600">৳ {Number(item.total_paid).toFixed(2)}</td>
-              <td className="p-3 text-right font-black text-rose-600">৳ {Number(item.due_amount).toFixed(2)}</td>
+              <td className="p-3 text-right font-medium">৳ {Number(item.payable_amount || 0).toFixed(2)}</td>
+              <td className="p-3 text-right font-medium text-emerald-600">৳ {Number(item.total_paid || 0).toFixed(2)}</td>
+              <td className="p-3 text-right font-black text-rose-600">৳ {Number(item.due_amount || 0).toFixed(2)}</td>
               <td className="p-3 text-center print:hidden">
                 <button
                   type="button"
@@ -209,7 +206,7 @@ export default function SaleDue() {
           ))
         ) : (
           <tr>
-            <td colSpan="8" className="text-center py-6 text-gray-400 text-xs">কোনো বাকি বা ডিউ ইনভয়েস পাওয়া যায়নি।</td>
+            <td colSpan="8" className="text-center py-6 text-gray-400 text-xs">No due invoices found.</td>
           </tr>
         )}
       </tbody>
@@ -286,7 +283,7 @@ export default function SaleDue() {
         </div>
 
         <div className="flex items-center space-x-1 bg-[#2c4e60] p-1 rounded-lg">
-          <button type="button" onClick={() => fetchDueSales(`${API_BASE_URL}/sales/due?page=1`, searchQuery)} disabled={pagination.current_page === 1} className="bg-[#417690] hover:bg-[#345e73] text-white px-2.5 py-1 rounded text-xs font-bold transition disabled:opacity-40 cursor-pointer">
+          <button type="button" onClick={() => fetchDueSales('/sales/due?page=1', searchQuery)} disabled={pagination.current_page === 1} className="bg-[#417690] hover:bg-[#345e73] text-white px-2.5 py-1 rounded text-xs font-bold transition disabled:opacity-40 cursor-pointer">
             ⏮ First
           </button>
           <button type="button" onClick={() => pagination.prev_page_url && fetchDueSales(pagination.prev_page_url, searchQuery)} disabled={!pagination.prev_page_url} className="bg-[#417690] hover:bg-[#345e73] text-white px-2.5 py-1 rounded text-xs font-bold transition disabled:opacity-40 cursor-pointer">
@@ -298,7 +295,7 @@ export default function SaleDue() {
           <button type="button" onClick={() => pagination.next_page_url && fetchDueSales(pagination.next_page_url, searchQuery)} disabled={!pagination.next_page_url} className="bg-[#417690] hover:bg-[#345e73] text-white px-2.5 py-1 rounded text-xs font-bold transition disabled:opacity-40 cursor-pointer">
             Next ▶
           </button>
-          <button type="button" onClick={() => fetchDueSales(`${API_BASE_URL}/sales/due?page=${pagination.last_page}`, searchQuery)} disabled={pagination.current_page === pagination.last_page} className="bg-[#417690] hover:bg-[#345e73] text-white px-2.5 py-1 rounded text-xs font-bold transition disabled:opacity-40 cursor-pointer">
+          <button type="button" onClick={() => fetchDueSales(`/sales/due?page=${pagination.last_page}`, searchQuery)} disabled={pagination.current_page === pagination.last_page} className="bg-[#417690] hover:bg-[#345e73] text-white px-2.5 py-1 rounded text-xs font-bold transition disabled:opacity-40 cursor-pointer">
             Last ⏭
           </button>
         </div>
@@ -311,7 +308,7 @@ export default function SaleDue() {
 
         <div className="md:hidden p-3">
           {loading && dueSales.length === 0 ? (
-            <div className="text-center py-6 text-gray-400 text-xs">ডেটা লোড হচ্ছে...</div>
+            <div className="text-center py-6 text-gray-400 text-xs">Loading data...</div>
           ) : dueSales.length > 0 ? (
             <div className="space-y-3">
               {dueSales.map((item, index) => (
@@ -322,7 +319,7 @@ export default function SaleDue() {
                       <h3 className="font-bold text-[#417690] text-sm">{item.sale_pos_no}</h3>
                     </div>
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700">
-                      Due: ৳ {Number(item.due_amount).toFixed(2)}
+                      Due: ৳ {Number(item.due_amount || 0).toFixed(2)}
                     </span>
                   </div>
 
@@ -330,12 +327,12 @@ export default function SaleDue() {
                     <div><span className="font-semibold text-gray-500">Date:</span> {item.sale_date}</div>
                     <div><span className="font-semibold text-gray-500">Customer:</span> {item.customer_name || 'Walk-in'}</div>
                     <div><span className="font-semibold text-gray-500">Phone:</span> {item.customer_phone || 'N/A'}</div>
-                    <div><span className="font-semibold text-gray-500">Payable:</span> ৳ {Number(item.payable_amount).toFixed(2)}</div>
+                    <div><span className="font-semibold text-gray-500">Payable:</span> ৳ {Number(item.payable_amount || 0).toFixed(2)}</div>
                   </div>
 
                   <div className="border-t pt-2 flex justify-between items-center text-[11px]">
                     <div className="text-emerald-600 font-medium">
-                      Paid: ৳ {Number(item.total_paid).toFixed(2)}
+                      Paid: ৳ {Number(item.total_paid || 0).toFixed(2)}
                     </div>
                     <button type="button" onClick={() => handleOpenPayModal(item)} className="bg-[#417690] hover:bg-[#345e73] text-white px-3 py-1 rounded text-xs font-bold transition cursor-pointer shadow-xs">
                       Pay Due 💳
@@ -360,7 +357,7 @@ export default function SaleDue() {
               </div>
             </div>
           ) : (
-            <div className="text-center py-6 text-gray-400 text-xs">কোনো বাকি বা ডিউ ইনভয়েস পাওয়া যায়নি।</div>
+            <div className="text-center py-6 text-gray-400 text-xs">No due invoices found.</div>
           )}
         </div>
       </div>
@@ -388,7 +385,7 @@ export default function SaleDue() {
 
               <div className="bg-sky-50/50 p-3 rounded-lg border border-sky-100 text-xs space-y-1">
                 <p><strong className="text-gray-600">Customer:</strong> {selectedSale.customer_name || 'Walk-in Customer'} ({selectedSale.customer_phone || 'N/A'})</p>
-                <p><strong className="text-gray-600">Total Due:</strong> <span className="text-rose-600 font-bold">৳ {Number(selectedSale.due_amount).toFixed(2)}</span></p>
+                <p><strong className="text-gray-600">Total Due:</strong> <span className="text-rose-600 font-bold">৳ {Number(selectedSale.due_amount || 0).toFixed(2)}</span></p>
               </div>
 
               <div>

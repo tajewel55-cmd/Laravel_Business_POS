@@ -1,8 +1,5 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
-
-// Set your backend API base URL here
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+import { useState, useEffect, useRef } from 'react';
+import API from '../api';
 
 export default function Backup() {
   const [backups, setBackups] = useState([]);
@@ -11,22 +8,49 @@ export default function Backup() {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [isAuthorized, setIsAuthorized] = useState(false);
 
-  // Get authentication headers securely
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return {
-      headers: {
-        Authorization: token ? `Bearer ${token}` : '',
-        Accept: 'application/json',
-      },
+  const notificationTimerRef = useRef(null);
+
+  // Helper function to show notifications safely
+  const showNotification = (type, text) => {
+    if (notificationTimerRef.current) {
+      clearTimeout(notificationTimerRef.current);
+    }
+    setMessage({ type, text });
+    notificationTimerRef.current = setTimeout(() => {
+      setMessage({ type: '', text: '' });
+    }, 5000);
+  };
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (notificationTimerRef.current) {
+        clearTimeout(notificationTimerRef.current);
+      }
     };
+  }, []);
+
+  // 1. Fetch all backup files list
+  const fetchBackups = async () => {
+    try {
+      setFetching(true);
+      const response = await API.get('/backups');
+      if (response.data && response.data.status === 'success') {
+        setBackups(response.data.backups || []);
+      }
+    } catch (err) {
+      console.error('Error fetching backups:', err);
+      showNotification('error', 'Failed to load backup list.');
+    } finally {
+      setFetching(false);
+    }
   };
 
   // Check user role on mount
   useEffect(() => {
     const checkUserRoleAndFetch = async () => {
       try {
-        const response = await axios.get(`${API_BASE_URL}/user`, getAuthHeaders());
+        const response = await API.get('/user');
         if (response.data) {
           const roleId = response.data.role_id;
           if ([1, 2, 3].includes(Number(roleId))) {
@@ -48,38 +72,13 @@ export default function Backup() {
     checkUserRoleAndFetch();
   }, []);
 
-  // 1. Fetch all backup files list
-  const fetchBackups = async () => {
-    try {
-      setFetching(true);
-      const response = await axios.get(`${API_BASE_URL}/backups`, getAuthHeaders());
-      if (response.data && response.data.status === 'success') {
-        setBackups(response.data.backups || []);
-      }
-    } catch (err) {
-      console.error('Error fetching backups:', err);
-      showNotification('error', 'Failed to load backup list.');
-    } finally {
-      setFetching(false);
-    }
-  };
-
-  // Helper function to show notifications
-  const showNotification = (type, text) => {
-    setMessage({ type, text });
-    setTimeout(() => {
-      setMessage({ type: '', text: '' });
-    }, 5000);
-  };
-
+  // 2. Create a new backup file
   const handleCreateBackup = async () => {
     setLoading(true);
     showNotification('info', 'Creating large backup (5-6 GB), this may take a few minutes. Please do not close the page...');
     try {
-
-      const response = await axios.post(`${API_BASE_URL}/backups/create`, {}, {
-        ...getAuthHeaders(),
-        timeout: 1800000, 
+      const response = await API.post('/backups/create', {}, {
+        timeout: 1800000, // 30 minutes timeout for large backups
       });
       if (response.data && response.data.status === 'success') {
         showNotification('success', response.data.message || 'Backup completed successfully!');
@@ -100,7 +99,7 @@ export default function Backup() {
     if (!window.confirm('Are you sure you want to delete this large backup file?')) return;
 
     try {
-      const response = await axios.delete(`${API_BASE_URL}/backups/${filename}`, getAuthHeaders());
+      const response = await API.delete(`/backups/${filename}`);
       if (response.data && response.data.status === 'success') {
         showNotification('success', 'Backup deleted successfully!');
         fetchBackups();
@@ -117,11 +116,18 @@ export default function Backup() {
     if (!filename) return;
     try {
       showNotification('info', 'Preparing large file download, please wait...');
-      const response = await axios.get(`${API_BASE_URL}/backups/download/${filename}`, {
-        ...getAuthHeaders(),
+      const response = await API.get(`/backups/download/${filename}`, {
         responseType: 'blob',
-        timeout: 1800000, // বড় ফাইল ডাউনলোডের জন্য পর্যাপ্ত সময় দেওয়া হলো
+        timeout: 1800000, // 30 minutes timeout for downloading large files
       });
+
+      // Handle JSON error inside Blob response
+      if (response.data.type === 'application/json') {
+        const text = await response.data.text();
+        const errorData = JSON.parse(text);
+        showNotification('error', errorData.message || 'Failed to download backup file.');
+        return;
+      }
 
       const blob = new Blob([response.data]);
       const link = document.createElement('a');
@@ -130,6 +136,8 @@ export default function Backup() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      window.URL.revokeObjectURL(link.href);
+
       showNotification('success', 'Backup downloaded successfully!');
     } catch (err) {
       console.error('Error downloading backup:', err);

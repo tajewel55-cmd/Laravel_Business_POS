@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import API from '../api';
 
 // Small inline SVG icons
 const IconPlus = ({ size = 16 }) => (
@@ -43,8 +43,8 @@ const BRAND_LIGHT = '#eaf1f4';
 export default function Users() {
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
-  
-  // ফর্ম স্টেট
+
+  // Form State
   const [userName, setUserName] = useState('');
   const [password, setPassword] = useState('');
   const [roleId, setRoleId] = useState('');
@@ -59,33 +59,28 @@ export default function Users() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Auto-hide messages after 2 seconds
+  // Auto-hide messages after 3 seconds safely
   useEffect(() => {
     if (success || error) {
       const timer = setTimeout(() => {
         setSuccess('');
         setError('');
-      }, 2000);
+      }, 3000);
       return () => clearTimeout(timer);
     }
   }, [success, error]);
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: `Bearer ${token}` } };
-  };
-
   const fetchData = async () => {
     try {
       const [userRes, roleRes] = await Promise.all([
-        axios.get('http://127.0.0.1:8000/api/users', getAuthHeaders()),
-        axios.get('http://127.0.0.1:8000/api/roles', getAuthHeaders())
+        API.get('/users'),
+        API.get('/roles')
       ]);
-      setUsers(userRes.data.data || []);
-      setRoles(roleRes.data.data || []);
+      setUsers(userRes.data?.data || []);
+      setRoles(roleRes.data?.data || []);
     } catch (err) {
       console.error('Error fetching data', err);
-      setError('Failed to load data from server.');
+      setError(err.response?.data?.message || 'Failed to load data from server.');
     }
   };
 
@@ -104,7 +99,7 @@ export default function Users() {
   const loadIntoForm = (user) => {
     setEditId(user.user_id);
     setUserName(user.user_name || '');
-    setPassword(''); // Passwords usually aren't loaded back for security
+    setPassword(''); // Never expose current password in UI
     setRoleId(user.role_id || user.role?.role_id || '');
     setError('');
     setSuccess('');
@@ -139,22 +134,21 @@ export default function Users() {
         const updateData = {
           user_name: userName,
           role_id: roleId,
-          email: ''
         };
-        if (password) {
+        // Only append password if the user actually typed a new one
+        if (password.trim()) {
           updateData.password = password;
         }
 
-        await axios.put(`http://127.0.0.1:8000/api/users/${editId}`, updateData, getAuthHeaders());
+        await API.put(`/users/${editId}`, updateData);
         setSuccess('User updated successfully!');
       } else {
         const submitData = {
           user_name: userName,
           password: password,
           role_id: roleId,
-          email: ''
         };
-        await axios.post('http://127.0.0.1:8000/api/users', submitData, getAuthHeaders());
+        await API.post('/users', submitData);
         setSuccess('User created successfully!');
       }
       resetForm();
@@ -173,12 +167,12 @@ export default function Users() {
     }
     if (window.confirm('Are you sure you want to delete this user?')) {
       try {
-        await axios.delete(`http://127.0.0.1:8000/api/users/${selectedId}`, getAuthHeaders());
+        await API.delete(`/users/${selectedId}`);
         setSuccess('User deleted successfully!');
         resetForm();
         fetchData();
       } catch (err) {
-        setError('Failed to delete user.');
+        setError(err.response?.data?.message || 'Failed to delete user.');
       }
     }
   };
@@ -207,7 +201,7 @@ export default function Users() {
     if (user.role && user.role.role_name) {
       return formatRoleName(user.role.role_name);
     }
-    const role = roles.find(r => r.role_id == user.role_id);
+    const role = roles.find((r) => String(r.role_id) === String(user.role_id));
     if (role && role.role_name) {
       return formatRoleName(role.role_name);
     }
@@ -218,11 +212,10 @@ export default function Users() {
   const filteredUsers = users.filter((user) => {
     const term = searchTerm.toLowerCase();
     const roleNameStr = getRoleName(user).toLowerCase();
-    return (
-      user.user_name?.toLowerCase().includes(term) ||
-      roleNameStr.includes(term) ||
-      String(user.user_id).toLowerCase().includes(term)
-    );
+    const userNameStr = (user.user_name || '').toLowerCase();
+    const userIdStr = String(user.user_id || '').toLowerCase();
+
+    return userNameStr.includes(term) || roleNameStr.includes(term) || userIdStr.includes(term);
   });
 
   const sortedUsers = [...filteredUsers].sort((a, b) => b.user_id - a.user_id);
@@ -230,11 +223,9 @@ export default function Users() {
 
   let displayedUsers = [];
   if (selectedId) {
-    const selectedItem = users.find(u => u.user_id === selectedId);
+    const selectedItem = users.find((u) => u.user_id === selectedId);
     displayedUsers = selectedItem ? [selectedItem] : [];
-  } else if (showAllRows) {
-    displayedUsers = sortedUsers;
-  } else if (isFilteringActive) {
+  } else if (showAllRows || isFilteringActive) {
     displayedUsers = sortedUsers;
   } else {
     displayedUsers = users.length > 0 ? [[...users].sort((a, b) => b.user_id - a.user_id)[0]] : [];
@@ -340,7 +331,7 @@ export default function Users() {
                     className={inputCls}
                   >
                     <option value="">Select Role</option>
-                    {roles.map(r => (
+                    {roles.map((r) => (
                       <option key={r.role_id} value={r.role_id}>
                         {formatRoleName(r.role_name)}
                       </option>
@@ -358,16 +349,17 @@ export default function Users() {
           <button
             type="submit"
             disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconPlus size={14} />
-            {editId ? 'Update' : 'Save'}
+            {loading ? 'Processing...' : editId ? 'Update' : 'Save'}
           </button>
           <button
             type="button"
             onClick={handleDeleteIconClick}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            disabled={loading}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconX size={14} />

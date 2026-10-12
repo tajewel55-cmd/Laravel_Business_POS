@@ -1,20 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
+import API from '../api';
 import flatpickr from "flatpickr";
 import "flatpickr/dist/flatpickr.min.css";
 import Purchase_arrow from './Purchase_arrow';
 import Purchase_update from './Purchase_update';
 import Purchase_print from './Purchase_print';
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
-
-// সবসময় একটা নিরাপদ (non-NaN) সংখ্যা রিটার্ন করে
+// Always returns a safe (non-NaN) number
 const toSafeNumber = (value, fallback = 0) => {
   const num = parseFloat(value);
   return Number.isFinite(num) ? num : fallback;
 };
 
-// pack_size ফিল্ডটা API থেকে কখনো string, কখনো পুরো object হতে পারে
+// The pack_size field from the API can sometimes be a string, sometimes a full object
 const getPackSizeName = (...sources) => {
   for (const source of sources) {
     if (!source) continue;
@@ -81,11 +79,6 @@ export default function Purchase() {
   const invoiceSearchRef = useRef(null);
   const flatpickrInstanceRef = useRef(null);
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: token ? `Bearer ${token}` : '' } };
-  };
-
   const handlePrintAction = () => {
     window.print();
   };
@@ -97,7 +90,7 @@ export default function Purchase() {
 
   const handleSupplierSearchChange = (value) => {
     setSupplierSearchQuery(value);
-    // টাইপ করলে আগের selection বাতিল
+    // Typing cancels the previous selection
     setSelectedSupplierId(null);
   };
 
@@ -215,10 +208,10 @@ export default function Purchase() {
         const price = Math.max(0, toSafeNumber(i?.purchase_price, 0));
         const prodInfo = i?.product && typeof i.product === 'object' ? i.product : {};
 
-        // এই লাইনটার জন্য ন্যূনতম এডিটেবল কোয়ান্টিটি —
-        // সূত্র: max(0, এই পারচেজে মূল কোয়ান্টিটি − প্রোডাক্টের বর্তমান মোট স্টক)।
-        // ব্যাকএন্ডের applyStockDelta() ঠিক এই একই সূত্র দিয়ে যাচাই করে, তাই এখানে
-        // ফ্রন্টএন্ডে আগেভাগে আটকে দিলে সেভ করার সময় ব্যাকএন্ডের রিজেকশনে পড়তে হয় না।
+        // Minimum editable quantity for this line —
+        // formula: max(0, original quantity in this purchase − product's current total stock).
+        // The backend's applyStockDelta() validates with this exact same formula, so blocking
+        // it here on the frontend in advance avoids hitting a backend rejection on save.
         const currentStock = toSafeNumber(
           prodInfo.stock_qty ?? prodInfo.current_stock ?? prodInfo.stock,
           0
@@ -261,9 +254,9 @@ export default function Purchase() {
   const fetchData = async () => {
     try {
       const [prodRes, purchaseRes, supplierRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/products`, getAuthHeaders()).catch(() => ({ data: { data: [] } })),
-        axios.get(`${API_BASE_URL}/purchases`, getAuthHeaders()).catch(() => ({ data: { data: [] } })),
-        axios.get(`${API_BASE_URL}/suppliers`, getAuthHeaders()).catch(() => ({ data: { data: [] } })),
+        API.get('/products').catch(() => ({ data: { data: [] } })),
+        API.get('/purchases').catch(() => ({ data: { data: [] } })),
+        API.get('/suppliers').catch(() => ({ data: { data: [] } })),
       ]);
 
       const productData = prodRes.data?.data ?? prodRes.data ?? [];
@@ -284,7 +277,7 @@ export default function Purchase() {
 
   const fetchShopInfo = async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/company-profile`, getAuthHeaders());
+      const res = await API.get('/company-profile');
       const raw = res.data?.data ?? res.data;
       const profile = Array.isArray(raw) ? raw[0] : raw;
       if (profile && typeof profile === 'object') {
@@ -329,7 +322,7 @@ export default function Purchase() {
   }, []);
 
   // =========================================================
-  // Flatpickr — screenshot অনুযায়ী: Header/Weekday/Selected = #417690
+  // Flatpickr — per the screenshot: Header/Weekday/Selected = #417690
   // =========================================================
   useEffect(() => {
     if (dateInputRef.current && !flatpickrInstanceRef.current) {
@@ -397,8 +390,8 @@ export default function Purchase() {
     loadPurchaseRecord(sorted[sorted.length - 1], { silent: true });
   };
 
-  // Purchase-এ Sales-এর মতো স্টক-scarcity সীমা নেই — নতুন যোগ করা আইটেমের
-  // minEditQuantity সবসময় 0 (এই এডিট সেশনে নতুন যোগ করা, আগের কোনো পারচেজ-লাইন নয়)
+  // Purchase has no stock-scarcity limit like Sales does — a newly added item's
+  // minEditQuantity is always 0 (added in this edit session, not an existing purchase line)
   const addProductToTable = (product) => {
     if (!product || typeof product !== 'object') {
       setError('An invalid product has been selected.');
@@ -430,12 +423,12 @@ export default function Purchase() {
         return newItems;
       }
 
-      // রেফারেন্স হিসেবে প্রোডাক্টের নিজস্ব purchase_price (কস্ট প্রাইস) ব্যবহার করা হচ্ছে
+      // Using the product's own purchase_price (cost price) as the reference
       const price = Math.max(0, toSafeNumber(product.purchase_price ?? product.sale_price ?? product.price, 0));
       const newItem = {
         product_id: productId,
         product_name: productDisplayName,
-        barcode: String(product.barcode || '---'),
+        barcode: String(product.barcode || product.barcode || '---'),
         pack_size: packSizeText,
         quantity: 1,
         purchase_price: price,
@@ -458,9 +451,9 @@ export default function Purchase() {
       let val = parseFloat(value);
 
       if (field === 'quantity') {
-        // এই লাইনটা যদি বিদ্যমান পারচেজের অংশ হয় এবং তার কিছু অংশ ইতিমধ্যে বিক্রি হয়ে
-        // থাকে (minEditQuantity > 0), তাহলে সেই সীমার নিচে নামানো যাবে না — ব্যাকএন্ডও
-        // একই নিয়ম প্রয়োগ করবে, তাই সেভ করার আগেই এখানে আটকে দেওয়া হচ্ছে।
+        // If this line is part of an existing purchase and part of it has already been sold
+        // (minEditQuantity > 0), it cannot be reduced below that floor — the backend enforces
+        // the same rule, so it's blocked here before save.
         const floorQty = Math.max(1, toSafeNumber(newItems[index].minEditQuantity, 0));
         if (!Number.isFinite(val) || val < floorQty) {
           if (Number.isFinite(val) && floorQty > 1) {
@@ -491,8 +484,8 @@ export default function Purchase() {
     setItems((prevItems) => {
       if (!Array.isArray(prevItems)) return [];
       const item = prevItems[index];
-      // এই লাইনের কিছু অংশ ইতিমধ্যে বিক্রি হয়ে থাকলে পুরো লাইনটা মুছে ফেলা যাবে না
-      // (ব্যাকএন্ডেও ব্লক হবে, কিন্তু ফ্রন্টএন্ডেই আগে জানিয়ে দেওয়া ভালো UX)
+      // If part of this line has already been sold, the entire line cannot be removed
+      // (the backend blocks it too, but it's better UX to flag it here on the frontend first)
       if (item && toSafeNumber(item.minEditQuantity, 0) > 0) {
         setError(
           `Cannot remove "${item.product_name}" — ${item.minEditQuantity} unit(s) from this purchase have already been sold.`
@@ -511,7 +504,7 @@ export default function Purchase() {
   const subTotalWithVat = subtotalAmount + vatAmount;
 
   const rawDiscount = Math.max(0, toSafeNumber(discountValue, 0));
-  // ডিসকাউন্ট কখনো VAT-সহ সাবটোটালের চেয়ে বেশি দেখানো হবে না
+  // Discount is never shown as more than the VAT-inclusive subtotal
   const calculatedDiscountAmount = Math.min(
     subTotalWithVat,
     discountType === 'Percentage' ? (subTotalWithVat * Math.min(100, rawDiscount)) / 100 : rawDiscount
@@ -519,7 +512,7 @@ export default function Purchase() {
 
   const totalAmount = Math.max(0, subTotalWithVat - calculatedDiscountAmount).toFixed(2);
 
-  // Paid Amount কখনো Payable Total-এর বেশি হবে না
+  // Paid Amount is never allowed to exceed the Payable Total
   const numericPaid = Math.max(0, toSafeNumber(paidAmount, 0));
   const finalPaidAmount = Math.min(numericPaid, toSafeNumber(totalAmount, 0));
   const dueAmount = Math.max(0, toSafeNumber(totalAmount, 0) - finalPaidAmount).toFixed(2);
@@ -575,11 +568,11 @@ export default function Purchase() {
     try {
       let savedPurchase;
       if (currentPurchaseId) {
-        const res = await axios.put(`${API_BASE_URL}/purchases/${currentPurchaseId}`, payload, getAuthHeaders());
+        const res = await API.put(`/purchases/${currentPurchaseId}`, payload);
         savedPurchase = res.data?.data;
         setSuccess('Purchase updated successfully!');
       } else {
-        const res = await axios.post(`${API_BASE_URL}/purchases`, payload, getAuthHeaders());
+        const res = await API.post('/purchases', payload);
         savedPurchase = res.data?.data;
         setSuccess('Purchase recorded successfully!');
       }
@@ -620,7 +613,7 @@ export default function Purchase() {
     try {
       setLoading(true);
       setError('');
-      await axios.delete(`${API_BASE_URL}/purchases/${currentPurchaseId}`, getAuthHeaders());
+      await API.delete(`/purchases/${currentPurchaseId}`);
       setSuccess('Purchase deleted successfully!');
       const updatedPurchases = await fetchData();
       showLatestOrNew(updatedPurchases);
@@ -973,7 +966,7 @@ export default function Purchase() {
                   <tr className="bg-[#417690] text-white text-[11px] uppercase tracking-wider">
                     <th className="py-2 px-3 text-center w-12 rounded-tl-lg">SL</th>
                     <th className="py-2 px-3">Product Name</th>
-                    <th className="py-2 px-3">Barcode</th>
+                    <th className="py-2 px-3">Product code</th>
                     <th className="py-2 px-3">Pack Size</th>
                     <th className="py-2 px-3 text-center w-24">Qty</th>
                     <th className="py-2 px-3 text-right w-28">Purchase Price (৳)</th>

@@ -81,7 +81,7 @@ export default function Purchase_update({
         if (!p) return false;
         const name = safeLower(p.product_name || p.name);
         const barcode = safeLower(p.barcode);
-        return name.includes(searchText) || code.includes(searchText);
+        return name.includes(searchText) || barcode.includes(searchText);
       })
     : [];
 

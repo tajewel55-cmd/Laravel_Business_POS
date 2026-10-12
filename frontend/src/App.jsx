@@ -1,6 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import axios from 'axios';
 
 import ErrorBoundary from './pages/ErrorBoundary';
 import Login from './pages/Login';
@@ -31,22 +30,9 @@ import AdminLayout from './components/AdminLayout';
 
 import PurchaseDue from './pages/PurchaseDue';
 import SaleDue from './pages/SaleDue';
-import Backup from "./pages/Backup";
+import Backup from './pages/Backup';
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
-
-axios.interceptors.response.use(
-  (res) => res,
-  (err) => {
-    if (err.response?.status === 401) {
-      localStorage.removeItem('auth_token');
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
-      }
-    }
-    return Promise.reject(err);
-  }
-);
+import api from './api';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -55,10 +41,8 @@ function App() {
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
     if (token) {
-      axios
-        .get(`${API_BASE_URL}/user`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
+      api
+        .get('/user')
         .then((res) => setUser(res.data))
         .catch(() => {
           localStorage.removeItem('auth_token');
@@ -66,23 +50,34 @@ function App() {
         })
         .finally(() => setLoading(false));
     } else {
-      setLoading(false);
+      setLoading(false); 
     }
   }, []);
 
   if (loading) {
-    return <div className="flex justify-center items-center h-screen bg-white text-gray-600">Loading BusinessPOS...</div>;
+    return (
+      <div className="flex justify-center items-center h-screen bg-white text-gray-600">
+        Loading BusinessPOS...
+      </div>
+    );
   }
 
   return (
     <ErrorBoundary>
-      <Router>
+      <Router basename={import.meta.env.BASE_URL}>
         <Routes>
           {/* Public login route */}
-          <Route path="/login" element={!user ? <Login setUser={setUser} /> : <Navigate to="/dashboard" />} />
+          <Route
+            path="/login"
+            element={!user ? <Login setUser={setUser} /> : <Navigate to="/dashboard" />}
+          />
 
           {/* Protected Layout Route */}
-          <Route element={user ? <AdminLayout user={user} setUser={setUser} /> : <Navigate to="/login" />}>
+          <Route
+            element={
+              user ? <AdminLayout user={user} setUser={setUser} /> : <Navigate to="/login" />
+            }
+          >
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/roles" element={<Roles />} />
             <Route path="/users" element={<Users />} />
@@ -102,14 +97,14 @@ function App() {
             <Route path="/adjustments" element={<Adjustment />} />
 
             <Route path="/reports/stock" element={<Report_Stock />} />
-            <Route path="/reports/sales-qty" element={<Report_Salesqty />} /> 
-            <Route path="/reports/profit-qty" element={<Report_Profitqty />} /> 
-            <Route path="/reports/sales-invoice" element={<Report_Salesinvoice />} />  
-            <Route path="/reports/sales-volume" element={<Report_Salesvolume />} /> 
+            <Route path="/reports/sales-qty" element={<Report_Salesqty />} />
+            <Route path="/reports/profit-qty" element={<Report_Profitqty />} />
+            <Route path="/reports/sales-invoice" element={<Report_Salesinvoice />} />
+            <Route path="/reports/sales-volume" element={<Report_Salesvolume />} />
 
             <Route path="/purchases/due" element={<PurchaseDue />} />
-            <Route path="/sales/due" element={<SaleDue />} />  
-            <Route path="/backups" element={<Backup />}/>                                             
+            <Route path="/sales/due" element={<SaleDue />} />
+            <Route path="/backups" element={<Backup />} />
           </Route>
 
           <Route path="*" element={<Navigate to={user ? '/dashboard' : '/login'} replace />} />

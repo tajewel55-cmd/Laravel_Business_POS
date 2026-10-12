@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import API from '../api';
 
 // Small inline SVG icons for text buttons
 const IconPlus = ({ size = 16 }) => (
@@ -36,15 +36,11 @@ export default function Permissions() {
     }
   }, [message]);
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: `Bearer ${token}` } };
-  };
-
   const fetchRoles = async () => {
     try {
-      const res = await axios.get('http://127.0.0.1:8000/api/roles', getAuthHeaders());
-      setRoles(res.data.data || res.data);
+      const res = await API.get('/roles');
+      const data = res.data?.data || res.data || [];
+      setRoles(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error fetching roles', err);
     }
@@ -52,8 +48,9 @@ export default function Permissions() {
 
   const fetchMenus = async () => {
     try {
-      const res = await axios.get('http://127.0.0.1:8000/api/menus', getAuthHeaders());
-      setMenus(res.data.data || res.data);
+      const res = await API.get('/menus');
+      const data = res.data?.data || res.data || [];
+      setMenus(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error fetching menus', err);
     }
@@ -75,10 +72,14 @@ export default function Permissions() {
     }
 
     try {
-      const res = await axios.get(`http://127.0.0.1:8000/api/roles/${roleId}/permissions`, getAuthHeaders());
-      const permissionsData = res.data.permissions || res.data.data || [];
-      const formattedPermissions = permissionsData.map(id => Number(id));
-      setSelectedMenus(formattedPermissions);
+      const res = await API.get(`/roles/${roleId}/permissions`);
+      const permissionsData = res.data?.permissions || res.data?.data || res.data || [];
+      if (Array.isArray(permissionsData)) {
+        const formattedPermissions = permissionsData.map(id => Number(id));
+        setSelectedMenus(formattedPermissions);
+      } else {
+        setSelectedMenus([]);
+      }
     } catch (err) {
       console.error('Error fetching role permissions', err);
       setSelectedMenus([]);
@@ -89,7 +90,7 @@ export default function Permissions() {
   const mainMenus = menus
     .filter(menu => !menu.parent_id)
     .sort((a, b) =>
-      a.menu_title.localeCompare(b.menu_title, undefined, {
+      (a.menu_title || '').localeCompare(b.menu_title || '', undefined, {
         sensitivity: 'base'
       })
     );
@@ -98,7 +99,7 @@ export default function Permissions() {
     menus
       .filter(menu => Number(menu.parent_id) === Number(parentId))
       .sort((a, b) =>
-        a.menu_title.localeCompare(b.menu_title, undefined, {
+        (a.menu_title || '').localeCompare(b.menu_title || '', undefined, {
           sensitivity: 'base'
         })
       );
@@ -125,7 +126,7 @@ export default function Permissions() {
         if (numericParentId && !newSelected.includes(numericParentId)) {
           newSelected.push(numericParentId);
         }
-        setSelectedMenus(newSelected);
+        setSelectedMenus([...new Set(newSelected)]);
       }
     }
   };
@@ -139,14 +140,14 @@ export default function Permissions() {
 
     setLoading(true);
     try {
-      await axios.post(`http://127.0.0.1:8000/api/roles/${selectedRole}/permissions`, {
+      await API.post(`/roles/${selectedRole}/permissions`, {
         menu_ids: selectedMenus
-      }, getAuthHeaders());
+      });
 
       setMessage('Permissions updated successfully!');
     } catch (err) {
       console.error('Error saving permissions', err);
-      setMessage('Failed to update permissions.');
+      setMessage(err.response?.data?.message || 'Failed to update permissions.');
     } finally {
       setLoading(false);
     }
@@ -175,7 +176,7 @@ export default function Permissions() {
 
         <div className="flex-1 px-2 text-center">
           {message && (
-            <span className={`text-xs px-3 py-1 rounded shadow-sm inline-block font-medium ${message.includes('success') || message.includes('cleared') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+            <span className={`text-xs px-3 py-1 rounded shadow-sm inline-block font-medium ${message.toLowerCase().includes('success') || message.toLowerCase().includes('cleared') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
               {message}
             </span>
           )}
@@ -276,7 +277,7 @@ export default function Permissions() {
             <button
               type="submit"
               disabled={loading}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
               style={{ background: BRAND_DARK }}
             >
               <IconPlus size={14} />

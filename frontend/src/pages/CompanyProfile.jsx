@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import API from '../api';
 
 // Small inline SVG icon for button
 const IconPlus = ({ size = 16 }) => (
@@ -41,16 +41,16 @@ export default function CompanyProfile() {
     }
   }, [success, error]);
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('auth_token');
-    return { headers: { Authorization: `Bearer ${token}` } };
-  };
-
   const fetchCompanyProfile = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/api/company-profile', getAuthHeaders());
-      if (response.data.data) {
-        setFormData(response.data.data);
+      const response = await API.get('/company-profile');
+      if (response.data?.data) {
+        setFormData({
+          company_name: response.data.data.company_name || '',
+          mobile: response.data.data.mobile || '',
+          mail: response.data.data.mail || '',
+          address: response.data.data.address || ''
+        });
       }
     } catch (err) {
       console.error('Error fetching company profile', err);
@@ -70,15 +70,26 @@ export default function CompanyProfile() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!formData.company_name.trim()) {
+      setError('Company Name is required.');
+      return;
+    }
+
     setSubmitting(true);
     setError('');
     setSuccess('');
 
     try {
-      const response = await axios.post('http://127.0.0.1:8000/api/company-profile', formData, getAuthHeaders());
-      setSuccess(response.data.message || 'Company profile updated successfully!');
-      if (response.data.data) {
-        setFormData(response.data.data);
+      const response = await API.post('/company-profile', formData);
+      setSuccess(response.data?.message || 'Company profile updated successfully!');
+      if (response.data?.data) {
+        setFormData({
+          company_name: response.data.data.company_name || '',
+          mobile: response.data.data.mobile || '',
+          mail: response.data.data.mail || '',
+          address: response.data.data.address || ''
+        });
       }
     } catch (err) {
       console.error('Error saving company profile', err);
@@ -203,7 +214,7 @@ export default function CompanyProfile() {
           <button
             type="submit"
             disabled={submitting}
-            className="flex items-center gap-1.5 px-5 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow"
+            className="flex items-center gap-1.5 px-5 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90 transition shadow disabled:opacity-50"
             style={{ background: BRAND_DARK }}
           >
             <IconPlus size={14} />

@@ -20,13 +20,6 @@ function toDisplayPrice(value) {
   return Number.isFinite(num) && num >= 0 ? num.toFixed(2) : '0.00';
 }
 
-const sanitizeNonNegativeInput = (value) => {
-  if (value === '') return '';
-  const num = parseFloat(value);
-  if (!Number.isFinite(num) || num < 0) return '0';
-  return value;
-};
-
 const SECTION_HEADER_CLASS =
   'text-xs font-bold text-white uppercase bg-[#417690] -mx-3 -mt-3 mb-2.5 px-3 py-1.5 rounded-t-lg';
 
@@ -52,14 +45,19 @@ export default function Adjustment_update({
   totalValue,
 }) {
   const safeProducts = Array.isArray(products) ? products : [];
-  const searchText = safeLower(globalProductSearch);
+  const searchText = safeLower(globalProductSearch).trim();
 
   const filteredProducts = searchText
     ? safeProducts.filter((p) => {
         if (!p) return false;
         const name = safeLower(p.product_name || p.name);
-        const code = safeLower(p.barcode || p.product_code);
-        return name.includes(searchText) || code.includes(searchText);
+        const barcode = safeLower(p.barcode);
+        const code = safeLower(p.product_code);
+        return (
+          name.includes(searchText) ||
+          barcode.includes(searchText) ||
+          code.includes(searchText)
+        );
       })
     : [];
 
@@ -141,6 +139,7 @@ export default function Adjustment_update({
             ref={dateInputRef}
             type="text"
             value={adjustmentDate || ''}
+            maxLength={10}
             onChange={(e) => setAdjustmentDate(e.target.value)}
             className="w-full px-2.5 py-1 text-xs border border-[#417690] rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#417690]"
           />
@@ -151,6 +150,7 @@ export default function Adjustment_update({
           <textarea
             rows="3"
             value={remarks || ''}
+            maxLength={1000}
             onChange={(e) => setRemarks(e.target.value)}
             placeholder="Reason for adjustment..."
             className="w-full px-2.5 py-1 text-xs border border-[#417690] rounded resize-y min-h-16 focus:outline-none focus:ring-1 focus:ring-[#417690]"
@@ -168,6 +168,7 @@ export default function Adjustment_update({
             type="text"
             placeholder="Scan barcode or type product name..."
             value={globalProductSearch || ''}
+            maxLength={100}
             onChange={(e) => {
               setGlobalProductSearch(e.target.value);
               setShowGlobalDropdown(true);

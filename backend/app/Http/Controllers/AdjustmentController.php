@@ -11,6 +11,15 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 use Exception;
+use RuntimeException;
+
+/**
+ * স্টক-সংক্রান্ত ব্যবহারকারী-দৃশ্যমান এরর (অন্য এরর ক্লায়েন্টকে দেখানো হয় না)।
+ * ভালো অভ্যাস: এটাকে app/Exceptions/AdjustmentStockException.php ফাইলে সরিয়ে নেওয়া।
+ */
+class AdjustmentStockException extends RuntimeException
+{
+}
 
 class AdjustmentController extends Controller
 {
@@ -39,15 +48,7 @@ class AdjustmentController extends Controller
 
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'type' => 'required|in:IN,OUT',
-            'adjustment_date' => 'required|date',
-            'remarks' => 'nullable|string|max:1000',
-            'items' => 'required|array|min:1',
-            'items.*.product_id' => 'required|integer|exists:products,product_id',
-            'items.*.quantity' => 'required|numeric|min:0.01',
-            'items.*.purchase_price' => 'required|numeric|min:0',
-        ]);
+        $validated = $request->validate($this->rules());
 
         DB::beginTransaction();
         try {
@@ -59,7 +60,9 @@ class AdjustmentController extends Controller
             ]);
 
             $this->syncDetails($adjustment->adjustment_id, $validated['items']);
-            $this->applyStock($validated['type'], $validated['items']);
+
+            // নতুন এন্ট্রি: পুরোনো প্রভাব নেই, শুধু নতুন প্রভাব
+            $this->applyStockDelta([], $this->toEffectMap($validated['type'], $validated['items']));
 
             DB::commit();
 
@@ -68,13 +71,13 @@ class AdjustmentController extends Controller
                 'message' => 'Adjustment recorded successfully!',
                 'data' => $adjustment->load($this->eagerLoad),
             ], 201);
+        } catch (AdjustmentStockException $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         } catch (Exception $e) {
             DB::rollBack();
             Log::error('Adjustment store failed: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage() ?: 'Failed to create adjustment!',
-            ], 500);
+            return response()->json(['success' => false, 'message' => 'Failed to create adjustment!'], 500);
         }
     }
 
@@ -90,21 +93,18 @@ class AdjustmentController extends Controller
             return $permissionCheck;
         }
 
-        $validated = $request->validate([
-            'type' => 'required|in:IN,OUT',
-            'adjustment_date' => 'required|date',
-            'remarks' => 'nullable|string|max:1000',
-            'items' => 'required|array|min:1',
-            'items.*.product_id' => 'required|integer|exists:products,product_id',
-            'items.*.quantity' => 'required|numeric|min:0.01',
-            'items.*.purchase_price' => 'required|numeric|min:0',
-        ]);
+        $validated = $request->validate($this->rules());
 
         DB::beginTransaction();
         try {
-            // পুরোনো এন্ট্রির স্টক-প্রভাব আগে উল্টে (reverse) দেওয়া হচ্ছে
+            // $adjustment->update()-এর আগেই পুরোনো প্রভাব (map) বানাতে হবে,
+            // কারণ update করলে $adjustment->type বদলে যায়
             $oldDetails = AdjustmentDetail::where('adjustment_id', $adjustment->adjustment_id)->get();
-            $this->reverseStock($adjustment->type, $oldDetails);
+            $oldEffectMap = $this->toEffectMap($adjustment->type, $oldDetails->all());
+            $newEffectMap = $this->toEffectMap($validated['type'], $validated['items']);
+
+            // reverse + apply একসাথে (net delta), নেগেটিভ চেক শুধু চূড়ান্ত স্টকে
+            $this->applyStockDelta($oldEffectMap, $newEffectMap);
 
             $adjustment->update([
                 'type' => $validated['type'],
@@ -113,9 +113,7 @@ class AdjustmentController extends Controller
             ]);
 
             AdjustmentDetail::where('adjustment_id', $adjustment->adjustment_id)->delete();
-
             $this->syncDetails($adjustment->adjustment_id, $validated['items']);
-            $this->applyStock($validated['type'], $validated['items']);
 
             DB::commit();
 
@@ -124,13 +122,13 @@ class AdjustmentController extends Controller
                 'message' => 'Adjustment updated successfully!',
                 'data' => $adjustment->load($this->eagerLoad),
             ], 200);
+        } catch (AdjustmentStockException $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         } catch (Exception $e) {
             DB::rollBack();
             Log::error('Adjustment update failed: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage() ?: 'Failed to update adjustment!',
-            ], 500);
+            return response()->json(['success' => false, 'message' => 'Failed to update adjustment!'], 500);
         }
     }
 
@@ -148,21 +146,36 @@ class AdjustmentController extends Controller
 
         DB::beginTransaction();
         try {
-            $this->reverseStock($adjustment->type, $adjustment->adjustment_details);
+            // ডিলিট: নতুন আইটেম নেই, শুধু পুরোনো প্রভাব উল্টে যাবে
+            $oldEffectMap = $this->toEffectMap($adjustment->type, $adjustment->adjustment_details->all());
+            $this->applyStockDelta($oldEffectMap, []);
 
             AdjustmentDetail::where('adjustment_id', $id)->delete();
             $adjustment->delete();
 
             DB::commit();
             return response()->json(['success' => true, 'message' => 'Adjustment deleted and stock reversed.'], 200);
+        } catch (AdjustmentStockException $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         } catch (Exception $e) {
             DB::rollBack();
             Log::error('Adjustment destroy failed: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage() ?: 'Failed to delete adjustment!',
-            ], 500);
+            return response()->json(['success' => false, 'message' => 'Failed to delete adjustment!'], 500);
         }
+    }
+
+    private function rules(): array
+    {
+        return [
+            'type' => 'required|in:IN,OUT',
+            'adjustment_date' => 'required|date',
+            'remarks' => 'nullable|string|max:1000',
+            'items' => 'required|array|min:1',
+            'items.*.product_id' => 'required|integer|exists:products,product_id',
+            'items.*.quantity' => 'required|integer|min:1|max:1000000',
+            'items.*.purchase_price' => 'required|numeric|min:0|max:100000000',
+        ];
     }
 
     private function checkEditPermission(Adjustment $adjustment, $user)
@@ -178,8 +191,7 @@ class AdjustmentController extends Controller
             return true;
         }
 
-        // Sales/Purchase মডিউলের মতো একই কনভেনশন — time_settings টেবিলে একটাই রো থাকে,
-        // 'setting_name' নামে কোনো কলাম নেই (আগে এটা ব্যবহার করলে কুয়েরি এরর হতো)
+        // time_settings টেবিলে একটাই রো থাকে (Sales/Purchase মডিউলের মতো একই কনভেনশন)
         $timeSetting = TimeSetting::first();
         $allowedHours = $timeSetting ? (int) $timeSetting->hours : 24;
 
@@ -197,11 +209,11 @@ class AdjustmentController extends Controller
     {
         $now = now();
         $detailsData = array_map(function ($item) use ($adjustmentId, $now) {
-            $qty = max(0.01, (float) $item['quantity']);
+            $qty = max(1, (int) $item['quantity']);
             $price = max(0, (float) $item['purchase_price']);
             return [
                 'adjustment_id' => $adjustmentId,
-                'product_id' => $item['product_id'],
+                'product_id' => (int) $item['product_id'],
                 'quantity' => $qty,
                 'purchase_price' => $price,
                 'sub_total' => round($qty * $price, 2),
@@ -213,58 +225,62 @@ class AdjustmentController extends Controller
         AdjustmentDetail::insert($detailsData);
     }
 
-    // IN হলে স্টক বাড়বে, OUT হলে স্টক কমবে (নেগেটিভ হতে দেওয়া হবে না)
-    private function applyStock(string $type, array $items): void
+    /**
+     * IN হলে +qty, OUT হলে -qty। একই প্রোডাক্ট একাধিক লাইনে থাকলে যোগ হয়ে যায়।
+     * $items হতে পারে অ্যারে (request) বা মডেল (details)।
+     */
+    private function toEffectMap(string $type, array $items): array
     {
+        $sign = $type === 'IN' ? 1 : -1;
+        $map = [];
+
         foreach ($items as $item) {
-            $product = Product::where('product_id', $item['product_id'])->lockForUpdate()->first();
-            if (!$product) {
-                throw new Exception("Product not found (ID: {$item['product_id']}).");
-            }
-
-            $qty = max(0.01, (float) $item['quantity']);
-
-            if ($type === 'IN') {
-                $product->stock_qty = (float) $product->stock_qty + $qty;
-            } else {
-                $newQty = (float) $product->stock_qty - $qty;
-                if ($newQty < 0) {
-                    throw new Exception(
-                        "Cannot perform adjustment! Stock cannot go negative for product: {$product->product_name} (Current Stock: {$product->stock_qty})"
-                    );
-                }
-                $product->stock_qty = $newQty;
-            }
-
-            $product->save();
+            $productId = (int) (is_array($item) ? $item['product_id'] : $item->product_id);
+            $qty = (int) (is_array($item) ? $item['quantity'] : $item->quantity);
+            $map[$productId] = ($map[$productId] ?? 0) + ($sign * $qty);
         }
+
+        return $map;
     }
 
-    // আগের এন্ট্রির স্টক-প্রভাব উল্টে দেওয়ার লজিক — এডিট/ডিলিটের সময় ব্যবহৃত হয়
-    private function reverseStock(string $oldType, $details): void
+    /**
+     * PurchaseController-এর মতো: delta = নতুন প্রভাব - পুরোনো প্রভাব।
+     * নেগেটিভ চেক হয় শুধু চূড়ান্ত স্টকে (পুরোনো প্রভাব আলাদা করে উল্টানো হয় না)।
+     *
+     * $oldEffectMap = [] → নতুন এন্ট্রি (store)
+     * $newEffectMap = [] → ডিলিট (destroy)
+     */
+    private function applyStockDelta(array $oldEffectMap, array $newEffectMap): void
     {
-        foreach ($details as $detail) {
-            $product = Product::where('product_id', $detail->product_id)->lockForUpdate()->first();
-            if (!$product) {
+        $productIds = array_unique(array_merge(array_keys($oldEffectMap), array_keys($newEffectMap)));
+        sort($productIds); // সবসময় একই ক্রমে লক করলে deadlock কমে
+
+        foreach ($productIds as $productId) {
+            $delta = (int) (($newEffectMap[$productId] ?? 0) - ($oldEffectMap[$productId] ?? 0));
+
+            if ($delta === 0) {
                 continue;
             }
 
-            $qty = (float) $detail->quantity;
-
-            if ($oldType === 'IN') {
-                $newQty = (float) $product->stock_qty - $qty;
-                if ($newQty < 0) {
-                    throw new Exception(
-                        "Cannot modify/delete this adjustment — product \"{$product->product_name}\" currently has only " .
-                        "{$product->stock_qty} in stock, but {$qty} would need to be removed " .
-                        "(some of this stock may have already been used/sold elsewhere)."
-                    );
+            $product = Product::where('product_id', $productId)->lockForUpdate()->first();
+            if (!$product) {
+                if ($delta > 0) {
+                    throw new AdjustmentStockException("Product not found (ID: {$productId}).");
                 }
-                $product->stock_qty = $newQty;
-            } else {
-                $product->stock_qty = (float) $product->stock_qty + $qty;
+                continue;
             }
 
+            $current = (int) $product->stock_qty;
+            $newStock = $current + $delta;
+
+            if ($newStock < 0) {
+                throw new AdjustmentStockException(
+                    "Cannot save this change — stock for \"{$product->product_name}\" would become negative " .
+                    "(Current Stock: {$current}). Part of this stock may have already been used or sold elsewhere."
+                );
+            }
+
+            $product->stock_qty = $newStock;
             $product->save();
         }
     }
